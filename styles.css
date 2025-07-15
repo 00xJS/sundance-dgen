@@ -80,7 +80,7 @@ textarea {
 .dynamic-section {
     display: flex;
     flex-wrap: wrap;
-    gap: 15px;
+    gap: 30px; /* Increased from 15px to 30px for better spacing */
     margin-bottom: 20px;
 }
 
