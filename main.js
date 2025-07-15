@@ -5,6 +5,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const output = document.getElementById("output");
     const numDescriptionsInput = document.getElementById("num-descriptions");
 
+    // Constants for customization
+    const constants = {
+        location: "Sundance Park",
+        checkInText: '✅ "Check in" on Campfire when you arrive',
+        eventEmojis: "💃☀️🕺",
+        shinyText: "If you're lucky, you might encounter a shiny one ✨\n",
+        bonusHeaderSingle: "————Event Bonus————",
+        bonusHeaderMultiple: "————Event Bonuses————"
+    };
+
     // Event configuration
     const eventConfig = {
         "Spotlight Hour": {
@@ -16,7 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
         "Raid Hour": {
             time: "6-7PM",
             bonuses: [],
-            specialFields: ["hundo", "whundo"]
+            specialFields: ["hundo", "whundo"],
+            maxBonuses: 0
         },
         "Community Day": {
             time: "2-5PM",
@@ -61,8 +72,9 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById(`${event.toLowerCase().replace(/ /g, "-")}-btn`).addEventListener("click", () => {
             selectedEventType = event;
             eventForm.style.display = "block";
+            numDescriptionsInput.value = "1";
             dynamicInputs.innerHTML = "";
-            numDescriptionsInput.value = "";
+            addInputs(1);
             output.innerHTML = "<h2>Generated Descriptions</h2>";
         });
     });
@@ -101,6 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Generate form fields
     function addInputs(num) {
         dynamicInputs.innerHTML = "";
+        const today = new Date().toISOString().split("T")[0]; // Today's date in YYYY-MM-DD
         for (let i = 0; i < num; i++) {
             const config = eventConfig[selectedEventType];
             let fields = `
@@ -113,12 +126,12 @@ document.addEventListener("DOMContentLoaded", () => {
                             <option value="no">No</option>
                         </select>
                     </label>
-                    <label>Date: <input type="date" id="date-${i}" required></label>
+                    <label>Date: <input type="date" id="date-${i}" value="${today}" required></label>
             `;
 
             // Add bonus fields
             if (config.bonuses.length) {
-                for (let j = 1; j <= (config.maxBonuses || 4); j++) {
+                for (let j = 1; j <= config.maxBonuses; j++) {
                     fields += `
                         <label>Bonus ${j}:
                             <select id="bonus${j}-${i}">
@@ -130,16 +143,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
-            // Add special fields
+            // Add special fields (not required)
             config.specialFields.forEach(field => {
-                fields += `<label>${field.replace(/^\w/, c => c.toUpperCase())}: <input type="text" id="${field}-${i}" required></label>`;
+                fields += `<label>${field.replace(/^\w/, c => c.toUpperCase())}: <input type="text" id="${field}-${i}"></label>`;
             });
 
             fields += "</div>";
             dynamicInputs.innerHTML += fields;
         }
 
-        // Add real-time validation
+        // Add real-time validation for required fields only
         dynamicInputs.querySelectorAll("input[required], select[required]").forEach(input => {
             input.addEventListener("input", () => {
                 input.style.borderColor = input.value ? "" : "var(--error-red)";
@@ -163,6 +176,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const dateInput = document.getElementById(`date-${i}`)?.value;
             const shinyAvailable = document.getElementById(`shiny-${i}`)?.value === "yes";
 
+            // Validate required fields
             if (!pokemon || !dateInput) {
                 alert(`Missing required fields for description ${i + 1}.`);
                 return;
@@ -170,41 +184,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const formattedDate = formatDate(dateInput);
             if (!formattedDate) {
-                alert(`Invalid date for description ${i + 1}. Please select a future date.`);
+                alert(`Invalid date for description ${i + 1}. Please select a valid date.`);
                 return;
             }
 
-            const shinyText = shinyAvailable ? `If you're lucky, you might encounter a shiny one ✨\n` : "";
-            let eventText = `from ${config.time} 💃☀️🕺\n\n`;
+            const shinyText = shinyAvailable ? constants.shinyText : "";
+            let eventText = `from ${config.time} ${constants.eventEmojis}\n\n`;
 
-            if (selectedEventType === "Spotlight Hour") {
-                const bonus1 = document.getElementById(`bonus1-${i}`)?.value || "None";
-                const bonus2 = document.getElementById(`bonus2-${i}`)?.value || "None";
-                const bonusText = (bonus1 !== "None" && bonus2 !== "None")
-                    ? `${bonus1} and ${bonus2}`
-                    : bonus1 !== "None" ? bonus1 : bonus2 !== "None" ? bonus2 : "No bonuses";
-                eventText = `from ${config.time} featuring ${bonusText} 💃☀️🕺\n\n`;
-            } else if (config.bonuses.length) {
-                const bonuses = collectBonuses(i, config.maxBonuses || 4);
-                if (bonuses) eventText += `${bonuses}\n\n`;
+            // Handle bonuses
+            if (config.bonuses.length) {
+                const bonuses = collectBonuses(i, config.maxBonuses);
+                const bonusCount = bonuses.split("\n").length;
+                const bonusHeader = bonusCount > 1 ? constants.bonusHeaderMultiple : bonusCount === 1 ? constants.bonusHeaderSingle : "";
+                if (bonuses) eventText += `${bonusHeader}\n${bonuses}\n\n`;
             }
 
+            // Handle special fields (always include, even if empty)
             if (selectedEventType === "Raid Hour") {
-                const hundo = document.getElementById(`hundo-${i}`)?.value;
-                const whundo = document.getElementById(`whundo-${i}`)?.value;
+                const hundo = document.getElementById(`hundo-${i}`)?.value?.trim() || "";
+                const whundo = document.getElementById(`whundo-${i}`)?.value?.trim() || "";
                 eventText += `💯 - ${hundo} / WB - ${whundo}\n\n`;
             } else if (selectedEventType === "Max Battles") {
-                const hundo = document.getElementById(`hundo-${i}`)?.value;
+                const hundo = document.getElementById(`hundo-${i}`)?.value?.trim() || "";
                 eventText += `💯 - ${hundo}\n\n`;
             } else if (config.specialFields.includes("attack")) {
-                const attack = document.getElementById(`attack-${i}`)?.value;
+                const attack = document.getElementById(`attack-${i}`)?.value?.trim() || "";
                 eventText += `Evolve for featured attack: ${attack}\n\n`;
             }
 
             descriptions.push(`
                 <div class="description">
                     <textarea readonly>${pokemon} ${selectedEventType}
-🎈 Join us at Sundance Park on ${formattedDate} for the ${pokemon} ${selectedEventType} ${eventText}${shinyText}✅ "Check in" on Campfire when you arrive</textarea>
+🎈 Join us at ${constants.location} on ${formattedDate} for the ${pokemon} ${selectedEventType} ${eventText}${shinyText}${constants.checkInText}</textarea>
                     <button onclick="copyToClipboard(this)">Copy</button>
                     <span class="copy-feedback">Copied!</span>
                 </div>
@@ -255,10 +266,17 @@ document.addEventListener("DOMContentLoaded", () => {
         if (textarea) {
             try {
                 await navigator.clipboard.writeText(textarea.value);
+                feedback.textContent = "Copied!";
+                feedback.style.color = "green";
                 feedback.style.display = "inline";
                 feedback.addEventListener("click", () => feedback.style.display = "none", { once: true });
                 setTimeout(() => feedback.style.display = "none", 5000);
             } catch (err) {
+                feedback.textContent = "Copy failed!";
+                feedback.style.color = "var(--error-red)";
+                feedback.style.display = "inline";
+                feedback.addEventListener("click", () => feedback.style.display = "none", { once: true });
+                setTimeout(() => feedback.style.display = "none", 5000);
                 console.error("Failed to copy:", err);
             }
         }
