@@ -1,9 +1,10 @@
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
     let selectedEventType = "";
     const eventForm = document.getElementById("event-form");
     const dynamicInputs = document.getElementById("dynamic-inputs");
     const output = document.getElementById("output");
     const numDescriptionsInput = document.getElementById("num-descriptions");
+    let pokemonList = [];
 
     // Constants for customization
     const constants = {
@@ -67,6 +68,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
+    // Fetch Pokémon names for autocomplete
+    async function fetchPokemonList() {
+        try {
+            const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=2000");
+            if (!response.ok) throw new Error("Failed to fetch Pokémon list");
+            const data = await response.json();
+            pokemonList = data.results.map(p => p.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
+        } catch (error) {
+            console.error("Error fetching Pokémon list:", error);
+        }
+    }
+
+    // Initialize Pokémon list
+    await fetchPokemonList();
+
     // Setup event type buttons
     Object.keys(eventConfig).forEach(event => {
         document.getElementById(`${event.toLowerCase().replace(/ /g, "-")}-btn`).addEventListener("click", () => {
@@ -108,6 +124,51 @@ document.addEventListener("DOMContentLoaded", () => {
             clearTimeout(timeout);
             timeout = setTimeout(() => func.apply(this, args), wait);
         };
+    }
+
+    // Fetch Pokémon image URL
+    async function fetchPokemonImage(pokemonName) {
+        try {
+            const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokemonName.toLowerCase().replace(/ /g, "-")}`);
+            if (!response.ok) {
+                throw new Error("Pokémon not found");
+            }
+            const data = await response.json();
+            const pokedexNumber = String(data.id).padStart(3, "0");
+            return `https://www.pokemon.com/static-assets/content-assets/cms2/img/pokedex/full/${pokedexNumber}.png`;
+        } catch (error) {
+            console.error(`Failed to fetch image for ${pokemonName}:`, error);
+            return null;
+        }
+    }
+
+    // Show autocomplete suggestions
+    function showSuggestions(input, suggestions, index) {
+        let suggestionBox = document.getElementById(`suggestions-${index}`);
+        if (!suggestionBox) {
+            suggestionBox = document.createElement("div");
+            suggestionBox.id = `suggestions-${index}`;
+            suggestionBox.className = "suggestions";
+            input.parentNode.appendChild(suggestionBox);
+        }
+        suggestionBox.innerHTML = "";
+        if (suggestions.length === 0) {
+            suggestionBox.style.display = "none";
+            return;
+        }
+
+        suggestions.forEach(suggestion => {
+            const div = document.createElement("div");
+            div.textContent = suggestion;
+            div.addEventListener("click", () => {
+                input.value = suggestion;
+                suggestionBox.innerHTML = "";
+                suggestionBox.style.display = "none";
+                input.style.borderColor = "";
+            });
+            suggestionBox.appendChild(div);
+        });
+        suggestionBox.style.display = "block";
     }
 
     // Generate form fields
@@ -152,16 +213,32 @@ document.addEventListener("DOMContentLoaded", () => {
             dynamicInputs.innerHTML += fields;
         }
 
-        // Add real-time validation for required fields only
+        // Add real-time validation and autocomplete for required fields
         dynamicInputs.querySelectorAll("input[required], select[required]").forEach(input => {
             input.addEventListener("input", () => {
                 input.style.borderColor = input.value ? "" : "var(--error-red)";
+                if (input.id.startsWith("pokemon-")) {
+                    const index = input.id.split("-")[1];
+                    const value = input.value.toLowerCase();
+                    const suggestions = pokemonList
+                        .filter(p => p.toLowerCase().startsWith(value))
+                        .slice(0, 5); // Limit to 5 suggestions
+                    showSuggestions(input, suggestions, index);
+                }
+            });
+
+            // Hide suggestions on blur
+            input.addEventListener("blur", () => {
+                const suggestionBox = document.getElementById(`suggestions-${input.id.split("-")[1]}`);
+                if (suggestionBox) {
+                    setTimeout(() => suggestionBox.style.display = "none", 200);
+                }
             });
         });
     }
 
     // Generate descriptions
-    function generateDescriptions() {
+    async function generateDescriptions() {
         const num = parseInt(numDescriptionsInput.value);
         if (isNaN(num) || num < 1) {
             alert("Please enter a valid number of descriptions.");
@@ -187,6 +264,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 alert(`Invalid date for description ${i + 1}. Please select a valid date.`);
                 return;
             }
+
+            // Fetch Pokémon image
+            const imageUrl = await fetchPokemonImage(pokemon);
+            const imageTag = imageUrl ? `<img src="${imageUrl}" alt="${pokemon} image" class="pokemon-image">` : "<p>No image available</p>";
 
             const shinyText = shinyAvailable ? constants.shinyText : "";
             let eventText = `from ${config.time} ${constants.eventEmojis}\n\n`;
@@ -214,6 +295,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             descriptions.push(`
                 <div class="description">
+                    ${imageTag}
                     <textarea readonly>${pokemon} ${selectedEventType}
 🎈 Join us at ${constants.location} on ${formattedDate} for the ${pokemon} ${selectedEventType} ${eventText}${shinyText}${constants.checkInText}</textarea>
                     <button onclick="copyToClipboard(this)">Copy</button>
