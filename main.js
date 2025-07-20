@@ -1,3 +1,5 @@
+import { pokemonCPData, autoFillCP } from './pokemonCPData.js';
+
 document.addEventListener("DOMContentLoaded", async () => {
     let selectedEventType = "";
     const eventForm = document.getElementById("event-form");
@@ -45,7 +47,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         "Raid Day": {
             time: "2-5PM",
             bonuses: ["Increased shiny chance", "5 free raid passes by spinning gyms, 6 total", "Remote raids increased to 20", "Extra Raid Bonus"],
-            specialFields: ["attack"],
+            specialFields: ["hundo", "whundo", "attack"],
             maxBonuses: 4
         },
         "Hatch Day": {
@@ -77,6 +79,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             pokemonList = data.results.map(p => p.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
         } catch (error) {
             console.error("Error fetching Pokémon list:", error);
+            pokemonList = Object.keys(pokemonCPData); // Fallback to pokemonCPData keys
         }
     }
 
@@ -165,10 +168,24 @@ document.addEventListener("DOMContentLoaded", async () => {
                 suggestionBox.innerHTML = "";
                 suggestionBox.style.display = "none";
                 input.style.borderColor = "";
+                // Trigger autofill for hundo/whundo after selecting a suggestion
+                autoFillCP(index);
             });
             suggestionBox.appendChild(div);
         });
         suggestionBox.style.display = "block";
+    }
+
+    // Handle Pokémon input for autocomplete and autofill
+    const debouncedAutoFillCP = debounce(autoFillCP, 300);
+    function handlePokemonInput(index) {
+        const input = document.getElementById(`pokemon-${index}`);
+        const value = input.value.toLowerCase();
+        const suggestions = pokemonList
+            .filter(p => p.toLowerCase().startsWith(value))
+            .slice(0, 5); // Limit to 5 suggestions
+        showSuggestions(input, suggestions, index);
+        debouncedAutoFillCP(index); // Trigger autofill with debounce
     }
 
     // Generate form fields
@@ -180,7 +197,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             let fields = `
                 <div class="dynamic-section">
                     <h3>${selectedEventType} ${i + 1}</h3>
-                    <label>Pokémon: <input type="text" id="pokemon-${i}" required></label>
+                    <label>Pokémon: <input type="text" id="pokemon-${i}" required oninput="handlePokemonInput(${i})"></label>
                     <label>Shiny Available? 
                         <select id="shiny-${i}" required>
                             <option value="yes">Yes</option>
@@ -213,7 +230,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             dynamicInputs.innerHTML += fields;
         }
 
-        // Add real-time validation and autocomplete for required fields
+        // Add real-time validation for required fields
         dynamicInputs.querySelectorAll("input[required], select[required]").forEach(input => {
             input.addEventListener("input", () => {
                 input.style.borderColor = input.value ? "" : "var(--error-red)";
@@ -222,7 +239,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     const value = input.value.toLowerCase();
                     const suggestions = pokemonList
                         .filter(p => p.toLowerCase().startsWith(value))
-                        .slice(0, 5); // Limit to 5 suggestions
+                        .slice(0, 5);
                     showSuggestions(input, suggestions, index);
                 }
             });
@@ -281,14 +298,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
 
             // Handle special fields (always include, even if empty)
-            if (selectedEventType === "Raid Hour") {
+            if (selectedEventType === "Raid Hour" || selectedEventType === "Raid Day") {
                 const hundo = document.getElementById(`hundo-${i}`)?.value?.trim() || "";
                 const whundo = document.getElementById(`whundo-${i}`)?.value?.trim() || "";
                 eventText += `💯 - ${hundo} / WB - ${whundo}\n\n`;
-            } else if (selectedEventType === "Max Battles") {
+            }
+            if (selectedEventType === "Max Battles") {
                 const hundo = document.getElementById(`hundo-${i}`)?.value?.trim() || "";
                 eventText += `💯 - ${hundo}\n\n`;
-            } else if (config.specialFields.includes("attack")) {
+            }
+            if (config.specialFields.includes("attack")) {
                 const attack = document.getElementById(`attack-${i}`)?.value?.trim() || "";
                 eventText += `Evolve for featured attack: ${attack}\n\n`;
             }
@@ -363,4 +382,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
         }
     };
+
+    // Make autoFillCP globally accessible
+    window.autoFillCP = autoFillCP;
 });
