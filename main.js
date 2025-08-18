@@ -6,11 +6,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const dynamicInputs = document.getElementById("dynamic-inputs");
     const output = document.getElementById("output");
     const numDescriptionsInput = document.getElementById("num-descriptions");
+    const customLocationInput = document.getElementById("custom-location");
     let pokemonList = [];
 
-    // Constants for customization
+    // Constants for customization (location now dynamic, so remove from here)
     const constants = {
-        location: "Sundance Park",
         checkInText: '✅ "Check in" on Campfire when you arrive',
         eventEmojis: "💃☀️🕺",
         shinyText: "If you're lucky, you might encounter a shiny one ✨\n",
@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         bonusHeaderMultiple: "————Event Bonuses————"
     };
 
-    // Event configuration
+    // Event configuration (unchanged)
     const eventConfig = {
         "Spotlight Hour": {
             time: "6-7PM",
@@ -46,7 +46,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         },
         "Raid Day": {
             time: "2-5PM",
-            bonuses: ["Increased shiny chance", "5 free raid passes by spinning gyms, 6 total", "Remote raids increased to 20", "Extra Raid Bonus"],
+            bonuses: ["Increased shiny chance", "5 free raid passes by spinning gyms, 6 total", "Remote raids increased to 20", "Extra Raid Bonus", "1.5x XP from Raids"],
             specialFields: ["hundo", "whundo", "attack"],
             maxBonuses: 4
         },
@@ -95,6 +95,25 @@ document.addEventListener("DOMContentLoaded", async () => {
             dynamicInputs.innerHTML = "";
             addInputs(1);
             output.innerHTML = "<h2>Generated Descriptions</h2>";
+            // Reset location to default
+            document.querySelector('input[name="location-type"][value="sundance"]').checked = true;
+            customLocationInput.style.visibility = "hidden";
+            customLocationInput.value = "";
+            customLocationInput.required = false;
+        });
+    });
+
+    // Handle location radio change
+    document.querySelectorAll('input[name="location-type"]').forEach(radio => {
+        radio.addEventListener("change", () => {
+            if (radio.value === "custom") {
+                customLocationInput.style.visibility = "visible";
+                customLocationInput.required = true;
+            } else {
+                customLocationInput.style.visibility = "hidden";
+                customLocationInput.required = false;
+                customLocationInput.value = "";
+            }
         });
     });
 
@@ -118,6 +137,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         output.innerHTML = "<h2>Generated Descriptions</h2>";
         eventForm.style.display = "none";
         selectedEventType = "";
+        customLocationInput.style.visibility = "hidden";
+        customLocationInput.required = false;
     });
 
     // Debounce utility
@@ -197,7 +218,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             let fields = `
                 <div class="dynamic-section">
                     <h3>${selectedEventType} ${i + 1}</h3>
-                    <label>Pokémon: <input type="text" id="pokemon-${i}" required oninput="handlePokemonInput(${i})"></label>
+                    <label>Pokémon: <input type="text" id="pokemon-${i}" required></label>
                     <label>Shiny Available? 
                         <select id="shiny-${i}" required>
                             <option value="yes">Yes</option>
@@ -230,12 +251,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             dynamicInputs.innerHTML += fields;
         }
 
+        // Add input listeners for Pokémon fields (replaces inline oninput)
+        dynamicInputs.querySelectorAll('input[id^="pokemon-"]').forEach(input => {
+            const index = parseInt(input.id.split('-')[1]);
+            input.addEventListener('input', () => handlePokemonInput(index));
+        });
+
         // Add real-time validation for required fields
         dynamicInputs.querySelectorAll("input[required], select[required]").forEach(input => {
             input.addEventListener("input", () => {
                 input.style.borderColor = input.value ? "" : "var(--error-red)";
                 if (input.id.startsWith("pokemon-")) {
-                    const index = input.id.split("-")[1];
+                    const index = parseInt(input.id.split("-")[1]);
                     const value = input.value.toLowerCase();
                     const suggestions = pokemonList
                         .filter(p => p.toLowerCase().startsWith(value))
@@ -254,12 +281,23 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 
-    // Generate descriptions
+    // Generate descriptions (now with dynamic location)
     async function generateDescriptions() {
         const num = parseInt(numDescriptionsInput.value);
         if (isNaN(num) || num < 1) {
             alert("Please enter a valid number of descriptions.");
             return;
+        }
+
+        // Get dynamic location
+        const locationType = document.querySelector('input[name="location-type"]:checked')?.value;
+        let location = "Sundance Park";
+        if (locationType === "custom") {
+            location = customLocationInput.value.trim();
+            if (!location) {
+                alert("Please enter a custom location.");
+                return;
+            }
         }
 
         const descriptions = ["<h2>Generated Descriptions</h2>"];
@@ -316,7 +354,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <div class="description">
                     ${imageTag}
                     <textarea readonly>${pokemon} ${selectedEventType}
-🎈 Join us at ${constants.location} on ${formattedDate} for the ${pokemon} ${selectedEventType} ${eventText}${shinyText}${constants.checkInText}</textarea>
+🎈 Join us at ${location} on ${formattedDate} for the ${pokemon} ${selectedEventType} ${eventText}${shinyText}${constants.checkInText}</textarea>
                     <button onclick="copyToClipboard(this)">Copy</button>
                     <span class="copy-feedback">Copied!</span>
                 </div>
@@ -382,7 +420,4 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
         }
     };
-
-    // Make autoFillCP globally accessible
-    window.autoFillCP = autoFillCP;
 });
