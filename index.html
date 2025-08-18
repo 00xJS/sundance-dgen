@@ -144,6 +144,10 @@
             width: 100%;
         }
 
+        label input[type="radio"] {
+            margin-right: 5px;
+        }
+
         input:invalid,
         select:invalid {
             border-color: var(--error-red);
@@ -223,6 +227,12 @@
         <!-- Dynamic Form -->
         <form id="event-form" style="display: none;">
             <div class="inline-fields">
+                <label>Location:</label>
+                <label><input type="radio" name="location-type" value="sundance" checked> Sundance Park</label>
+                <label><input type="radio" name="location-type" value="custom"> Custom</label>
+                <input type="text" id="custom-location" placeholder="Enter custom location" style="visibility: hidden;" required>
+            </div>
+            <div class="inline-fields">
                 <label for="num-descriptions">How many descriptions?</label>
                 <input type="number" id="num-descriptions" min="1" required>
             </div>
@@ -237,11 +247,11 @@
         <div id="output">
             <h2>Generated Descriptions</h2>
         </div>
-    </div>
 
-    <footer class="footer">
-        <p><a href="https://observation-deck.netlify.app/">Observation Deck</a> | JS | <a href="https://github.com/00xJS/sundance-dgen">Project GitHub</a></p>
-    </footer>
+        <footer class="footer">
+            <p><a href="https://observation-deck.netlify.app/">Observation Deck</a> | JS | <a href="https://github.com/00xJS/sundance-dgen">Project GitHub</a></p>
+        </footer>
+    </div>
 
     <script type="module" src="main.js"></script>
 </body>
