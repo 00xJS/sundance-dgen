@@ -197,7 +197,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const resp = await fetch('https://pogoapi.net/api/v1/shiny_pokemon.json');
         if (!resp.ok) throw new Error('Shiny data unavailable');
         const data = await resp.json();
-        shinyCache = new Set(Object.values(data).map(p => p.pokemon_name.toLowerCase()));
+        shinyCache = new Set(Object.values(data).map(p => p.name.toLowerCase()));
         return shinyCache;
     }
 
