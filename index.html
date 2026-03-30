@@ -224,6 +224,27 @@
             <button id="max-battles-btn">Max Battles</button>
         </div>
 
+        <!-- Bulk Import Section -->
+        <hr style="margin: 25px 0; border: none; border-top: 1px solid #ccc;">
+        <h2>Bulk Import</h2>
+        <p style="font-size: 13px; color: #666; margin-top: -10px;">Paste a markdown table of events to generate all descriptions at once.</p>
+        <div class="inline-fields">
+            <label>Location:</label>
+            <label><input type="radio" name="bulk-location-type" value="sundance" checked> Sundance Park</label>
+            <label><input type="radio" name="bulk-location-type" value="custom"> Custom</label>
+            <input type="text" id="bulk-custom-location" placeholder="Enter custom location" style="visibility: hidden;">
+        </div>
+        <textarea id="bulk-input" style="height: 180px; margin-top: 10px;" placeholder="Paste markdown table here...
+
+| Event Name                | Details                                          | Date         | Day       |
+|---------------------------|--------------------------------------------------|--------------|-----------|
+| Raid Hour – Kyogre        | 5⭐ Kyogre featured in raids, 6–7pm local time   | Apr 8        | Wednesday |
+| Tinkatink Community Day   | Shiny debut, 3× Stardust, 2× Candy              | Apr 11, 2–5pm| Saturday  |"></textarea>
+        <div class="form-actions">
+            <button type="button" id="bulk-generate-btn">Generate All Descriptions</button>
+        </div>
+        <hr style="margin: 25px 0; border: none; border-top: 1px solid #ccc;">
+
         <!-- Dynamic Form -->
         <form id="event-form" style="display: none;">
             <div class="inline-fields">
@@ -234,7 +255,7 @@
             </div>
             <div class="inline-fields">
                 <label for="num-descriptions">How many descriptions?</label>
-                <input type="number" id="num-descriptions" min="1" required>
+                <input type="number" id="num-descriptions" min="1" max="20" required>
             </div>
             <div id="dynamic-inputs"></div>
             <div class="form-actions">
