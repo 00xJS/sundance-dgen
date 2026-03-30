@@ -502,7 +502,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             const cols = trimmed.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
             if (cols.length < 3) continue;
             if (/event name/i.test(cols[0])) continue; // header row
-            const [name, details, date] = cols;
+            const [rawName, details, date] = cols;
+            const name = rawName.replace(/\*\*/g, '').replace(/^[^\w]+/, '').trim();
             if (name && details && date) events.push({ name, details, date });
         }
         return events;
@@ -538,7 +539,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function parseDateString(dateStr) {
-        const monthMap = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+        const monthMap = {
+            jan:1, january:1, feb:2, february:2, mar:3, march:3,
+            apr:4, april:4, may:5, jun:6, june:6, jul:7, july:7,
+            aug:8, august:8, sep:9, september:9, oct:10, october:10,
+            nov:11, november:11, dec:12, december:12
+        };
         const match = dateStr.match(/([A-Za-z]+)\s+(\d+)/);
         if (!match) return null;
         const month = monthMap[match[1].toLowerCase()];
