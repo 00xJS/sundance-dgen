@@ -1,0 +1,40 @@
+name: Refresh data snapshots
+
+# Re-fetches Pokémon base stats and the released-shiny list into data/ so the
+# site does not depend on PoGoAPI being up at page load. Also reports curated
+# CP values that have drifted from current base stats — check the run log.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'   # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch and trim snapshots
+        run: npm run refresh-data
+
+      - name: Run tests against the refreshed data
+        run: node --test
+
+      - name: Commit if anything changed
+        run: |
+          if [[ -z "$(git status --porcelain data/)" ]]; then
+            echo "Snapshots already current — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git commit -m "Refresh Pokémon data snapshots"
+          git push

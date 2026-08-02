@@ -5,267 +5,796 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Event Description Generator</title>
-    <!-- Embedded CSS from styles.css -->
+    <meta name="theme-color" content="#0a0d1c">
+    <link rel="icon"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%88%3C/text%3E%3C/svg%3E">
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-EKSFQV85VJ"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'G-EKSFQV85VJ');
+    </script>
+
     <style>
+        /* ===== Observation Deck design tokens ===== */
         :root {
-            --primary-blue: #007bff;
-            --hover-orange: #e67300;
-            --border-gray: #ccc;
-            --focus-shadow: rgba(0, 123, 255, 0.5);
-            --error-red: #ff0000;
+            color-scheme: dark;
+            /* native controls, scrollbars, pickers render dark */
+
+            /* surfaces */
+            --bg: #0a0d1c;
+            --bg-raised: #10142e;
+            --card: #12163a;
+            --card-chrome: #0c0f26;
+            /* header/toolbar strips */
+            --border: rgba(255, 255, 255, 0.09);
+            --border-hover: rgba(255, 154, 68, 0.55);
+
+            /* text */
+            --text: #e8eaf6;
+            --muted: #9ba1c5;
+            --faint: #7b81aa;
+            /* 5.12:1 on --bg, 4.63:1 on --card — safe for small text */
+
+            /* accents */
+            --accent: #ff9a44;
+            /* links, primary emphasis */
+            --accent-deep: #e8792b;
+            /* hover / pressed */
+            --magenta: #c23e8c;
+            /* secondary accent, sparingly */
+
+            /* semantic */
+            --live: #3ddc84;
+            /* success / up / positive */
+            --warn: #ffc24b;
+            --down: #ff6b6b;
+            /* error / down / negative */
+            --series-blue: #5b8def;
+            /* 2nd chart series — the one non-semantic hue in the palette */
+            --grid: rgba(255, 255, 255, 0.07);
+            /* chart gridlines */
+            --fill-accent: rgba(255, 154, 68, 0.12);
+            /* low-alpha area fills */
+
+            /* components */
+            --tag-bg: rgba(255, 154, 68, 0.10);
+            --tag-text: #ffb877;
+            --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+            --btn-ink: #0a0d1c;
+            /* text on solid accent buttons (dark ink on orange) */
+            --btc: #f7931a;
+            /* reserved: the ₿ glyph / Bitcoin brand mark ONLY, never UI accents */
+
+            /* local addition (Sundance DeGen): a light chip behind Pokémon sprites so
+               dark line art stays legible on the navy card — handoff §5 risk note. */
+            --sprite-bg: rgba(255, 255, 255, 0.07);
+
+            /* type */
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif;
+            --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+            /* shape */
+            --radius-card: 12px;
+            --radius-control: 8px;
+            --radius-pill: 999px;
+        }
+
+        /* base */
+        * {
+            box-sizing: border-box;
         }
 
         body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f9f9f9;
-            color: #333;
+            margin: 0;
+            font-family: var(--font-sans);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
         }
 
-        .container {
-            max-width: 800px;
-            margin: auto;
-            padding: 20px;
-            background: #ffffff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            border-radius: 8px;
+        /* ambient glow */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            background:
+                radial-gradient(900px 480px at 15% -10%, rgba(232, 121, 43, 0.10), transparent 60%),
+                radial-gradient(800px 480px at 90% 0%, rgba(194, 62, 140, 0.09), transparent 60%);
         }
 
-        .event-buttons {
+        ::selection {
+            background: var(--accent-deep);
+            color: var(--btn-ink);
+        }
+
+        a {
+            color: var(--accent);
+        }
+
+        a:hover {
+            color: var(--accent-deep);
+        }
+
+        a:focus-visible,
+        button:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 3px;
+            border-radius: 4px;
+        }
+
+        @keyframes deck-pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.35;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+
+        /* ===== layout ===== */
+        .wrap {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 28px 20px 40px;
+        }
+
+        .page-head {
+            margin-bottom: 20px;
+        }
+
+        .kicker {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--faint);
+            margin: 0 0 6px;
+        }
+
+        .kicker a {
+            color: var(--faint);
+            text-decoration: none;
+        }
+
+        .kicker a:hover {
+            color: var(--accent);
+        }
+
+        h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text);
+            margin: 0;
+            letter-spacing: -0.01em;
+        }
+
+        /* ===== status chip ===== */
+        .chip-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
+            gap: 8px;
+            margin-top: 12px;
         }
 
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-pill);
+            background: var(--bg-raised);
+            color: var(--muted);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .chip .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--faint);
+        }
+
+        .chip.ok {
+            color: var(--live);
+        }
+
+        .chip.ok .dot {
+            background: var(--live);
+            box-shadow: 0 0 8px var(--live);
+            animation: deck-pulse 2.4s ease-in-out infinite;
+        }
+
+        .chip.warn {
+            color: var(--warn);
+        }
+
+        .chip.warn .dot {
+            background: var(--warn);
+            box-shadow: 0 0 8px var(--warn);
+        }
+
+        .chip.down {
+            color: var(--down);
+        }
+
+        .chip.down .dot {
+            background: var(--down);
+            box-shadow: 0 0 8px var(--down);
+        }
+
+        /* mono uppercase micro-labels are the theme's voice */
+        h2 {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin: 0;
+        }
+
+        h3 {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--tag-text);
+            margin: 0;
+        }
+
+        /* ===== panels ===== */
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow);
+            margin-bottom: 18px;
+        }
+
+        .panel-head {
+            background: var(--card-chrome);
+            border-bottom: 1px solid var(--border);
+            border-radius: var(--radius-card) var(--radius-card) 0 0;
+            padding: 12px 18px;
+        }
+
+        .panel-body,
+        .panel--output {
+            padding: 18px;
+        }
+
+        .hint {
+            font-size: 13px;
+            color: var(--faint);
+            margin: 0 0 14px;
+        }
+
+        /* ===== buttons ===== */
         button {
-            padding: 10px 20px;
-            font-size: 16px;
+            font-family: var(--font-sans);
             cursor: pointer;
-            background-color: var(--primary-blue);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            transition: background-color 0.2s;
         }
 
-        button:hover {
-            background-color: var(--hover-orange);
-        }
-
-        textarea {
-            width: 100%;
-            height: 120px;
-            margin-top: 10px;
-            padding: 10px;
-            border: 1px solid var(--border-gray);
-            border-radius: 4px;
-            resize: none;
-            font-family: inherit;
+        .btn {
+            font-family: var(--font-sans);
             font-size: 14px;
-        }
-
-        .description {
-            display: flex;
-            align-items: center;
-            margin: 15px 0;
-            gap: 10px;
-        }
-
-        .pokemon-image {
-            max-width: 100px;
-            height: auto;
-            border-radius: 8px;
-            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
-        }
-
-        .suggestions {
-            position: absolute;
-            background: white;
-            border: 1px solid var(--border-gray);
-            border-radius: 4px;
-            max-width: 200px;
-            max-height: 150px;
-            overflow-y: auto;
-            z-index: 1000;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            display: none;
-        }
-
-        .suggestions div {
-            padding: 8px;
+            font-weight: 600;
+            border: 1px solid transparent;
+            border-radius: var(--radius-control);
+            padding: 9px 16px;
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
         }
 
-        .suggestions div:hover {
-            background-color: var(--primary-blue);
-            color: white;
+        /* dark ink on orange — white-on-orange fails contrast */
+        .btn--primary {
+            background: var(--accent);
+            color: var(--btn-ink);
+            border-color: var(--accent);
         }
 
-        .inline-fields {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            margin: 10px 0;
+        .btn--primary:hover {
+            background: var(--accent-deep);
+            border-color: var(--accent-deep);
+            transform: translateY(-1px);
+        }
+
+        .btn--ghost {
+            background: var(--bg-raised);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        .btn--ghost:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn--sm {
+            font-size: 12px;
+            padding: 7px 13px;
         }
 
         .form-actions {
             display: flex;
             gap: 10px;
             justify-content: center;
-            margin-top: 20px;
+            margin-top: 18px;
         }
 
+        /* ===== event-type selector (pill chips) ===== */
+        .event-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .event-btn {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-pill);
+            background: var(--bg-raised);
+            color: var(--muted);
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .event-btn:hover {
+            color: var(--text);
+            border-color: var(--border-hover);
+        }
+
+        .event-btn.is-active {
+            background: var(--tag-bg);
+            border-color: var(--border-hover);
+            color: var(--tag-text);
+        }
+
+        /* ===== form controls ===== */
+        label {
+            display: block;
+            margin: 12px 0 6px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        /* labels are mono/uppercase; controls must opt back out or user input renders uppercase */
+        input,
+        select,
+        textarea {
+            font-family: var(--font-sans);
+            font-size: 14px;
+            font-weight: 400;
+            letter-spacing: normal;
+            text-transform: none;
+            color: var(--text);
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-control);
+            padding: 8px 10px;
+            width: 100%;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(255, 154, 68, 0.18);
+        }
+
+        /* :user-invalid, not :invalid — empty required fields shouldn't render
+           red the instant the form is built, only after the user has touched them */
+        input:user-invalid,
+        select:user-invalid {
+            border-color: var(--down);
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: var(--faint);
+        }
+
+        textarea {
+            height: 120px;
+            resize: none;
+            line-height: 1.45;
+        }
+
+        #bulk-input {
+            height: 180px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+        }
+
+        input[type="radio"] {
+            width: auto;
+            padding: 0;
+            accent-color: var(--accent);
+        }
+
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.7);
+            cursor: pointer;
+        }
+
+        .inline-fields {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin: 14px 0;
+        }
+
+        .inline-fields label {
+            margin: 0;
+        }
+
+        .inline-fields input[type="text"] {
+            width: auto;
+            flex: 1 1 220px;
+        }
+
+        .inline-fields input[type="number"] {
+            width: auto;
+            flex: 0 0 auto;
+            max-width: 110px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* radio options as pill chips */
+        .radio-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin: 0;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-pill);
+            background: var(--bg-raised);
+            color: var(--muted);
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .radio-pill:hover {
+            border-color: var(--border-hover);
+            color: var(--text);
+        }
+
+        .radio-pill:has(input:checked) {
+            background: var(--tag-bg);
+            border-color: var(--border-hover);
+            color: var(--tag-text);
+        }
+
+        /* ===== dynamic event fields ===== */
         .dynamic-section {
             display: flex;
             flex-wrap: wrap;
-            gap: 30px;
-            margin-bottom: 20px;
+            gap: 4px 20px;
+            background: var(--card-chrome);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-control);
+            padding: 14px 16px;
+            margin-bottom: 14px;
+        }
+
+        .dynamic-section h3 {
+            flex: 1 1 100%;
+            margin-bottom: 2px;
         }
 
         .dynamic-section label {
             flex: 1 1 200px;
             position: relative;
+            margin: 8px 0 0;
         }
 
-        label {
-            font-weight: bold;
-            display: block;
-            margin: 5px 0;
+        /* CP figures are data — keep them tabular so they line up down the column */
+        input[id^="hundo-"],
+        input[id^="whundo-"] {
+            font-variant-numeric: tabular-nums;
         }
 
-        input,
-        select {
-            padding: 8px;
-            font-size: 14px;
-            border: 1px solid var(--border-gray);
-            border-radius: 4px;
+        /* autocomplete dropdown — must set a surface explicitly or it falls back to white */
+        .suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
             width: 100%;
+            max-width: 260px;
+            /* suggestions are capped at 5 in main.js — tall enough that no row is half-cut */
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            margin-top: 4px;
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-control);
+            box-shadow: var(--shadow);
         }
 
-        label input[type="radio"] {
-            margin-right: 5px;
+        .suggestions[hidden] {
+            display: none;
         }
 
-        input:invalid,
-        select:invalid {
-            border-color: var(--error-red);
+        .suggestion {
+            padding: 8px 10px;
+            font-family: var(--font-sans);
+            font-size: 14px;
+            font-weight: 400;
+            letter-spacing: normal;
+            text-transform: none;
+            color: var(--text);
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease;
         }
 
-        textarea:focus,
-        input:focus,
-        select:focus {
-            outline: none;
-            border-color: var(--primary-blue);
-            box-shadow: 0 0 4px var(--focus-shadow);
+        /* hover and keyboard focus share one look, so arrowing feels like pointing */
+        .suggestion:hover,
+        .suggestion.is-active {
+            background: var(--tag-bg);
+            color: var(--tag-text);
         }
 
-        h1,
-        h2,
-        h3 {
-            color: var(--primary-blue);
-            margin-bottom: 15px;
+        /* ===== generated output ===== */
+        #output>h2 {
+            margin-bottom: 14px;
         }
 
-        h1 {
-            text-align: center;
+        .description {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 14px;
+            background: var(--card-chrome);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-control);
+            padding: 14px;
+            margin: 12px 0;
+        }
+
+        .description textarea {
+            flex: 1 1 320px;
+            min-width: 0;
+            height: 150px;
+        }
+
+        .pokemon-image {
+            flex: 0 0 auto;
+            width: 96px;
+            height: 96px;
+            object-fit: contain;
+            padding: 6px;
+            background: var(--sprite-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-control);
         }
 
         .copy-feedback {
-            font-size: 12px;
-            color: green;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--live);
             cursor: pointer;
             display: none;
         }
 
+        /* skipped-row warnings from the bulk parser */
+        .notice {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 10px;
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--warn);
+            border-radius: var(--radius-control);
+            padding: 10px 12px;
+            margin: 10px 0;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .notice .tag {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            color: var(--warn);
+        }
+
+        .notice strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        /* something the user must fix, as opposed to a row that was skipped */
+        .notice--error {
+            border-left-color: var(--down);
+        }
+
+        .notice--error .tag {
+            color: var(--down);
+        }
+
+        .no-image {
+            flex: 0 0 auto;
+            width: 96px;
+            margin: 0;
+            padding: 6px;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-align: center;
+            color: var(--faint);
+        }
+
+        /* ===== footer ===== */
         .footer {
             text-align: center;
-            margin-top: 30px;
-            padding: 10px;
-            border-top: 1px solid var(--border-gray);
-            color: #666;
+            margin-top: 28px;
+            padding: 16px 10px 0;
+            border-top: 1px solid var(--border);
+            color: var(--faint);
+            font-size: 13px;
+        }
+
+        .footer p {
+            margin: 0;
         }
 
         .footer a {
-            color: var(--primary-blue);
+            color: var(--accent);
             text-decoration: none;
         }
 
         .footer a:hover {
-            color: var(--hover-orange);
+            color: var(--accent-deep);
             text-decoration: underline;
         }
     </style>
 </head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-EKSFQV85VJ"></script>
-<script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag() { dataLayer.push(arguments); }
-    gtag('js', new Date());
-
-    gtag('config', 'G-EKSFQV85VJ');
-</script>
 
 <body>
-    <div class="container">
-        <h1>Event Description Generator</h1>
+    <div class="wrap">
+        <header class="page-head">
+            <p class="kicker"><a href="https://observation-deck.netlify.app/">Observation Deck</a> / Sundance DeGen</p>
+            <h1>Event Description Generator</h1>
+            <div class="chip-row">
+                <span class="chip" id="data-status">
+                    <span class="dot"></span>
+                    <span id="data-status-text">CP + shiny data · loading</span>
+                </span>
+            </div>
+        </header>
 
         <!-- Event Type Selection -->
-        <div class="event-buttons">
-            <button id="spotlight-hour-btn">Spotlight Hour</button>
-            <button id="raid-hour-btn">Raid Hour</button>
-            <button id="community-day-btn">Community Day</button>
-            <button id="community-day-classic-btn">Community Day Classic</button>
-            <button id="raid-day-btn">Raid Day</button>
-            <button id="hatch-day-btn">Hatch Day</button>
-            <button id="research-day-btn">Research Day</button>
-            <button id="max-battles-btn">Max Battles</button>
-        </div>
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Event Type</h2>
+            </div>
+            <div class="panel-body">
+                <div class="event-buttons">
+                    <button type="button" class="event-btn" id="spotlight-hour-btn">Spotlight Hour</button>
+                    <button type="button" class="event-btn" id="raid-hour-btn">Raid Hour</button>
+                    <button type="button" class="event-btn" id="community-day-btn">Community Day</button>
+                    <button type="button" class="event-btn" id="community-day-classic-btn">Community Day
+                        Classic</button>
+                    <button type="button" class="event-btn" id="raid-day-btn">Raid Day</button>
+                    <button type="button" class="event-btn" id="hatch-day-btn">Hatch Day</button>
+                    <button type="button" class="event-btn" id="research-day-btn">Research Day</button>
+                    <button type="button" class="event-btn" id="max-battles-btn">Max Battles</button>
+                </div>
+            </div>
+        </section>
 
         <!-- Bulk Import Section -->
-        <hr style="margin: 25px 0; border: none; border-top: 1px solid #ccc;">
-        <h2>Bulk Import</h2>
-        <p style="font-size: 13px; color: #666; margin-top: -10px;">Paste a markdown table of events to generate all descriptions at once.</p>
-        <div class="inline-fields">
-            <label>Location:</label>
-            <label><input type="radio" name="bulk-location-type" value="sundance" checked> Sundance Park</label>
-            <label><input type="radio" name="bulk-location-type" value="custom"> Custom</label>
-            <input type="text" id="bulk-custom-location" placeholder="Enter custom location" style="visibility: hidden;">
-        </div>
-        <textarea id="bulk-input" style="height: 180px; margin-top: 10px;" placeholder="Paste your event list here..."></textarea>
-        <div class="form-actions">
-            <button type="button" id="bulk-generate-btn">Generate All Descriptions</button>
-        </div>
-        <hr style="margin: 25px 0; border: none; border-top: 1px solid #ccc;">
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Bulk Import</h2>
+            </div>
+            <div class="panel-body">
+                <p class="hint">Paste a markdown table of events to generate all descriptions at once.</p>
+                <div class="inline-fields">
+                    <label>Location:</label>
+                    <label class="radio-pill"><input type="radio" name="bulk-location-type" value="sundance" checked>
+                        Sundance Park</label>
+                    <label class="radio-pill"><input type="radio" name="bulk-location-type" value="custom">
+                        Custom</label>
+                    <input type="text" id="bulk-custom-location" placeholder="Enter custom location"
+                        style="visibility: hidden;">
+                </div>
+                <textarea id="bulk-input" placeholder="Paste your event list here..."></textarea>
+                <div class="messages" id="bulk-messages" role="alert" hidden></div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn--primary" id="bulk-generate-btn">Generate All
+                        Descriptions</button>
+                </div>
+            </div>
+        </section>
 
         <!-- Dynamic Form -->
-        <form id="event-form" style="display: none;">
-            <div class="inline-fields">
-                <label>Location:</label>
-                <label><input type="radio" name="location-type" value="sundance" checked> Sundance Park</label>
-                <label><input type="radio" name="location-type" value="custom"> Custom</label>
-                <input type="text" id="custom-location" placeholder="Enter custom location" style="visibility: hidden;" required>
+        <form id="event-form" class="panel" style="display: none;">
+            <div class="panel-head">
+                <h2>Event Details</h2>
             </div>
-            <div class="inline-fields">
-                <label for="num-descriptions">How many descriptions?</label>
-                <input type="number" id="num-descriptions" min="1" max="20" required>
-            </div>
-            <div id="dynamic-inputs"></div>
-            <div class="form-actions">
-                <button type="button" id="generate-btn">Generate Descriptions</button>
-                <button type="button" id="reset-btn">Reset</button>
+            <div class="panel-body">
+                <div class="inline-fields">
+                    <label>Location:</label>
+                    <label class="radio-pill"><input type="radio" name="location-type" value="sundance" checked>
+                        Sundance Park</label>
+                    <label class="radio-pill"><input type="radio" name="location-type" value="custom"> Custom</label>
+                    <input type="text" id="custom-location" placeholder="Enter custom location"
+                        style="visibility: hidden;" required>
+                </div>
+                <div class="inline-fields">
+                    <label for="num-descriptions">How many descriptions?</label>
+                    <input type="number" id="num-descriptions" min="1" max="20" required>
+                </div>
+                <div id="dynamic-inputs"></div>
+                <div class="messages" id="form-messages" role="alert" hidden></div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn--primary" id="generate-btn">Generate Descriptions</button>
+                    <button type="button" class="btn btn--ghost" id="reset-btn">Reset</button>
+                </div>
             </div>
         </form>
 
         <!-- Output Section -->
-        <div id="output">
+        <section id="output" class="panel panel--output">
             <h2>Generated Descriptions</h2>
-        </div>
+        </section>
 
         <footer class="footer">
-            <p><a href="https://observation-deck.netlify.app/">Observation Deck</a> | JS | <a href="https://github.com/00xJS/sundance-dgen">Project GitHub</a></p>
+            <p><a href="https://observation-deck.netlify.app/">Observation Deck</a> · JS · <a
+                    href="https://github.com/00xJS/sundance-dgen">GitHub</a></p>
         </footer>
     </div>
 
