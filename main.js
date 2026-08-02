@@ -1,738 +1,559 @@
-import { pokemonCPData, autoFillCP } from './pokemonCPData.js';
+/**
+ * DOM wiring. All parsing, formatting and description text lives in parse.js;
+ * everything that touches the network lives in data.js.
+ */
 
-document.addEventListener("DOMContentLoaded", async () => {
-    let selectedEventType = "";
-    const eventForm = document.getElementById("event-form");
-    const dynamicInputs = document.getElementById("dynamic-inputs");
-    const output = document.getElementById("output");
-    const numDescriptionsInput = document.getElementById("num-descriptions");
-    const customLocationInput = document.getElementById("custom-location");
+import { eventConfig } from './config.js';
+import { parseBulkTable, parseEventRow, formatDate, renderDescription } from './parse.js';
+import {
+    primeData, getCatchCP, isShinyReleased, loadPokemonNames, fetchPokemonImage, onStatusChange
+} from './data.js';
+
+const STORAGE_KEY = 'sundance-dgen:v1';
+const MAX_DESCRIPTIONS = 20;
+const MAX_SUGGESTIONS = 5;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const eventForm = document.getElementById('event-form');
+    const dynamicInputs = document.getElementById('dynamic-inputs');
+    const output = document.getElementById('output');
+    const numDescriptionsInput = document.getElementById('num-descriptions');
+    const customLocationInput = document.getElementById('custom-location');
+    const bulkInput = document.getElementById('bulk-input');
+    const bulkCustomLocation = document.getElementById('bulk-custom-location');
+    const formMessages = document.getElementById('form-messages');
+    const bulkMessages = document.getElementById('bulk-messages');
+
+    let selectedEventType = '';
     let pokemonList = [];
-    let goStatsCache = null;
-    let shinyCache = null;
 
-    // Constants for customization (location now dynamic, so remove from here)
-    const constants = {
-        checkInText: '✅ "Check in" on Campfire when you arrive',
-        eventEmojis: "💃☀️🕺",
-        shinyText: "If you're lucky, you might encounter a shiny one ✨\n",
-        bonusHeaderSingle: "————Event Bonus————",
-        bonusHeaderMultiple: "————Event Bonuses————"
-    };
+    // ------------------------------------------------------------ helpers ----
 
-    // Event configuration (unchanged)
-    const eventConfig = {
-        "Spotlight Hour": {
-            time: "6-7PM",
-            bonuses: ["2x Catch Stardust", "2x Catch XP", "2x Catch Candy", "2x Transfer Candy", "2x Evolution XP"],
-            specialFields: [],
-            maxBonuses: 2
-        },
-        "Raid Hour": {
-            time: "6-7PM",
-            bonuses: [],
-            specialFields: ["hundo", "whundo"],
-            maxBonuses: 0
-        },
-        "Community Day": {
-            time: "2-5PM",
-            bonuses: ["1/2 Hatch Distance", "1/4 Hatch Distance", "2x Catch XP & Stardust", "2x Catch Candy & XL Chance", "3x Catch Stardust", "3 HR Lures / Incense", "+1 Special Trade & Half Trade Cost"],
-            specialFields: ["attack"],
-            maxBonuses: 4
-        },
-        "Community Day Classic": {
-            time: "2-5PM",
-            bonuses: ["1/4 Hatch Distance", "3 HR Lures / Incense", "5 Photobomb Encounters", "Extra Special Trade"],
-            specialFields: ["attack"],
-            maxBonuses: 4
-        },
-        "Raid Day": {
-            time: "2-5PM",
-            bonuses: ["Increased shiny chance", "5 free raid passes by spinning gyms, 6 total", "Remote raids increased to 20", "Extra Raid Bonus", "1.5x XP from Raids"],
-            specialFields: ["hundo", "whundo", "attack"],
-            maxBonuses: 4
-        },
-        "Hatch Day": {
-            time: "2-5PM",
-            bonuses: ["Increased shiny chance", "1/4 Hatch Distance", "1/2 Hatch Distance"],
-            specialFields: [],
-            maxBonuses: 3
-        },
-        "Research Day": {
-            time: "2-5PM",
-            bonuses: ["Increased shiny chance"],
-            specialFields: [],
-            maxBonuses: 2
-        },
-        "Max Battles": {
-            time: "2-5PM",
-            bonuses: ["1/4 Adventure Distance for MP", "MP Collection raised to 1600", "8x MP from Power Spots", "2x MP for Exploring", "+2 Special Trades"],
-            specialFields: ["hundo"],
-            maxBonuses: 5
-        }
-    };
+    const escapeHTML = value => String(value).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
 
-    // Fetch Pokémon names for autocomplete
-    async function fetchPokemonList() {
-        try {
-            const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=2000");
-            if (!response.ok) throw new Error("Failed to fetch Pokémon list");
-            const data = await response.json();
-            pokemonList = data.results.map(p => p.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
-        } catch (error) {
-            console.error("Error fetching Pokémon list:", error);
-            pokemonList = Object.keys(pokemonCPData); // Fallback to pokemonCPData keys
-        }
-    }
-
-    // Initialize Pokémon list
-    await fetchPokemonList();
-
-    // Setup event type buttons
-    Object.keys(eventConfig).forEach(event => {
-        document.getElementById(`${event.toLowerCase().replace(/ /g, "-")}-btn`).addEventListener("click", () => {
-            selectedEventType = event;
-            eventForm.style.display = "block";
-            numDescriptionsInput.value = "1";
-            dynamicInputs.innerHTML = "";
-            addInputs(1);
-            output.innerHTML = "<h2>Generated Descriptions</h2>";
-            // Reset location to default
-            document.querySelector('input[name="location-type"][value="sundance"]').checked = true;
-            customLocationInput.style.visibility = "hidden";
-            customLocationInput.value = "";
-            customLocationInput.required = false;
-        });
-    });
-
-    // Handle location radio change
-    document.querySelectorAll('input[name="location-type"]').forEach(radio => {
-        radio.addEventListener("change", () => {
-            if (radio.value === "custom") {
-                customLocationInput.style.visibility = "visible";
-                customLocationInput.required = true;
-            } else {
-                customLocationInput.style.visibility = "hidden";
-                customLocationInput.required = false;
-                customLocationInput.value = "";
-            }
-        });
-    });
-
-    // Auto-generate inputs on number change
-    numDescriptionsInput.addEventListener("input", debounce(() => {
-        let num = parseInt(numDescriptionsInput.value);
-        if (num > 20) { num = 20; numDescriptionsInput.value = 20; }
-        if (num > 0) {
-            addInputs(num);
-        } else {
-            dynamicInputs.innerHTML = "";
-        }
-    }, 300));
-
-    // Generate descriptions
-    document.getElementById("generate-btn").addEventListener("click", debounce(generateDescriptions, 300));
-
-    // Bulk import handler
-    document.getElementById("bulk-generate-btn").addEventListener("click", debounce(generateBulkDescriptions, 300));
-
-    // Handle bulk location radio change
-    document.querySelectorAll('input[name="bulk-location-type"]').forEach(radio => {
-        radio.addEventListener("change", () => {
-            const bulkCustom = document.getElementById("bulk-custom-location");
-            if (radio.value === "custom") {
-                bulkCustom.style.visibility = "visible";
-            } else {
-                bulkCustom.style.visibility = "hidden";
-                bulkCustom.value = "";
-            }
-        });
-    });
-
-    // Reset form
-    document.getElementById("reset-btn").addEventListener("click", () => {
-        eventForm.reset();
-        dynamicInputs.innerHTML = "";
-        output.innerHTML = "<h2>Generated Descriptions</h2>";
-        eventForm.style.display = "none";
-        selectedEventType = "";
-        customLocationInput.style.visibility = "hidden";
-        customLocationInput.required = false;
-    });
-
-    // Debounce utility
-    function debounce(func, wait) {
+    function debounce(fn, wait) {
         let timeout;
         return function (...args) {
             clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
+            timeout = setTimeout(() => fn.apply(this, args), wait);
         };
     }
 
-    // Fetch Pokemon GO base stats and calculate raid catch CP
-    async function fetchPokemonGOCP(pokemonName) {
+    /** An inline message. `body` is trusted HTML — escape anything interpolated into it. */
+    const notice = (tag, body, variant = 'warn') =>
+        `<div class="notice${variant === 'error' ? ' notice--error' : ''}">` +
+        `<span class="tag">${escapeHTML(tag)}</span><span>${body}</span></div>`;
+
+    function showMessages(container, html) {
+        container.innerHTML = html;
+        container.hidden = !html;
+    }
+
+    const clearMessages = container => showMessages(container, '');
+
+    // -------------------------------------------------------- persistence ----
+
+    function readStore() {
         try {
-            if (!goStatsCache) {
-                const resp = await fetch('https://pogoapi.net/api/v1/pokemon_stats.json');
-                if (!resp.ok) throw new Error('GO stats unavailable');
-                goStatsCache = await resp.json();
-            }
-            const entry = goStatsCache.find(p =>
-                p.pokemon_name.toLowerCase() === pokemonName.toLowerCase()
-            );
-            if (!entry) return null;
-            const { base_attack, base_defense, base_stamina } = entry;
-            const calc = cpm => Math.floor(
-                (base_attack + 15) * Math.sqrt(base_defense + 15) * Math.sqrt(base_stamina + 15) * cpm * cpm / 10
-            );
-            return { hundo: calc(0.5974), whundo: calc(0.667934) };
+            return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? {};
         } catch {
-            return null;
+            return {};
         }
     }
 
-    // Fetch shiny release data and build a lookup Set (cached)
-    async function fetchShinyReleased() {
-        if (shinyCache) return shinyCache;
-        const resp = await fetch('https://pogoapi.net/api/v1/shiny_pokemon.json');
-        if (!resp.ok) throw new Error('Shiny data unavailable');
-        const data = await resp.json();
-        shinyCache = new Set(Object.values(data).map(p => p.name.toLowerCase()));
-        return shinyCache;
-    }
-
-    // Returns true/false if known, null if API failed (caller falls back to text detection)
-    async function isPokemonShinyReleased(pokemonName) {
+    /** Persistence is a convenience — private mode or a full quota must not break the app. */
+    function persist(patch) {
         try {
-            const shinySet = await fetchShinyReleased();
-            return shinySet.has(pokemonName.toLowerCase());
-        } catch {
-            return null;
-        }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...readStore(), ...patch }));
+        } catch { /* ignore */ }
     }
 
-    // Auto-set shiny dropdown on manual form after Pokemon selection
-    async function tryAPIFillShiny(index) {
-        const shinySelect = document.getElementById(`shiny-${index}`);
-        if (!shinySelect) return;
-        const pokemon = document.getElementById(`pokemon-${index}`)?.value?.trim();
-        if (!pokemon) return;
-        const released = await isPokemonShinyReleased(pokemon);
-        if (released !== null) shinySelect.value = released ? 'yes' : 'no';
+    function restore() {
+        const saved = readStore();
+        if (typeof saved.bulkInput === 'string') bulkInput.value = saved.bulkInput;
+        if (typeof saved.bulkCustomLocation === 'string') bulkCustomLocation.value = saved.bulkCustomLocation;
+        if (typeof saved.customLocation === 'string') customLocationInput.value = saved.customLocation;
+
+        for (const [group, value] of [['bulk-location-type', saved.bulkLocationType], ['location-type', saved.locationType]]) {
+            if (!value) continue;
+            const radio = document.querySelector(`input[name="${group}"][value="${value}"]`);
+            if (radio) radio.checked = true;
+        }
+        syncLocationVisibility('bulk-location-type', bulkCustomLocation);
+        syncLocationVisibility('location-type', customLocationInput);
     }
 
-    // API fallback CP fill for manual form (fires after autoFillCP if fields still empty)
-    async function tryAPIFillCP(index) {
-        if (selectedEventType !== 'Raid Hour' && selectedEventType !== 'Raid Day') return;
-        const hundoInput = document.getElementById(`hundo-${index}`);
-        if (!hundoInput || hundoInput.value) return;
-        const pokemon = document.getElementById(`pokemon-${index}`)?.value?.trim();
-        if (!pokemon) return;
-        const cp = await fetchPokemonGOCP(pokemon);
-        if (cp) {
-            hundoInput.value = cp.hundo;
-            const whundoInput = document.getElementById(`whundo-${index}`);
-            if (whundoInput) whundoInput.value = cp.whundo;
-        }
+    /** Show the free-text location box only when "Custom" is selected. */
+    function syncLocationVisibility(group, input) {
+        const isCustom = document.querySelector(`input[name="${group}"]:checked`)?.value === 'custom';
+        input.style.visibility = isCustom ? 'visible' : 'hidden';
+        if (group === 'location-type') input.required = isCustom;
+        if (!isCustom) input.value = '';
     }
 
-    // Fetch Pokémon image URL
-    async function fetchPokemonImage(pokemonName) {
-        try {
-            const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokemonName.toLowerCase().replace(/ /g, "-")}`);
-            if (!response.ok) {
-                throw new Error("Pokémon not found");
-            }
-            const data = await response.json();
-            const pokedexNumber = String(data.id).padStart(3, "0");
-            return `https://www.pokemon.com/static-assets/content-assets/cms2/img/pokedex/full/${pokedexNumber}.png`;
-        } catch (error) {
-            console.error(`Failed to fetch image for ${pokemonName}:`, error);
-            return null;
-        }
+    function chosenLocation(group, input) {
+        const isCustom = document.querySelector(`input[name="${group}"]:checked`)?.value === 'custom';
+        return isCustom ? input.value.trim() : null;   // null means "use the default"
     }
 
-    // Show autocomplete suggestions
-    function showSuggestions(input, suggestions, index) {
-        let suggestionBox = document.getElementById(`suggestions-${index}`);
-        if (!suggestionBox) {
-            suggestionBox = document.createElement("div");
-            suggestionBox.id = `suggestions-${index}`;
-            suggestionBox.className = "suggestions";
-            input.parentNode.appendChild(suggestionBox);
+    // ------------------------------------------------------- status chip ----
+
+    onStatusChange(({ source, generated }) => {
+        const chip = document.getElementById('data-status');
+        const label = document.getElementById('data-status-text');
+        if (!chip || !label) return;
+
+        chip.classList.remove('ok', 'warn', 'down');
+        if (source === 'snapshot') {
+            chip.classList.add('ok');
+            const day = generated ? new Date(generated).toISOString().slice(0, 10) : 'bundled';
+            label.textContent = `CP + shiny data · ${day}`;
+        } else if (source === 'live') {
+            chip.classList.add('ok');
+            label.textContent = 'CP + shiny data · live';
+        } else if (source === 'offline') {
+            chip.classList.add('down');
+            label.textContent = 'CP + shiny data · unavailable';
+        } else {
+            label.textContent = 'CP + shiny data · loading';
         }
-        suggestionBox.innerHTML = "";
-        if (suggestions.length === 0) {
-            suggestionBox.style.display = "none";
-            return;
+    });
+
+    primeData();
+
+    // Autocomplete works immediately off the bundled names, then widens.
+    loadPokemonNames().then(names => { pokemonList = names; });
+
+    // ------------------------------------------------------ autocomplete ----
+
+    const matchesFor = value => {
+        const query = value.trim().toLowerCase();
+        if (!query) return [];
+        return pokemonList.filter(p => p.toLowerCase().startsWith(query)).slice(0, MAX_SUGGESTIONS);
+    };
+
+    /**
+     * ARIA 1.2 combobox: the input owns a listbox, keyboard moves a virtual
+     * focus via aria-activedescendant, and the mouse path stays as it was.
+     */
+    function attachAutocomplete(input, index) {
+        const listId = `suggestions-${index}`;
+        const list = document.createElement('div');
+        list.id = listId;
+        list.className = 'suggestions';
+        list.setAttribute('role', 'listbox');
+        list.hidden = true;
+        input.parentNode.appendChild(list);
+
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-controls', listId);
+        input.setAttribute('aria-expanded', 'false');
+        input.setAttribute('aria-autocomplete', 'list');
+        input.setAttribute('autocomplete', 'off');
+
+        let options = [];
+        let activeIndex = -1;
+
+        function close() {
+            list.hidden = true;
+            input.setAttribute('aria-expanded', 'false');
+            input.removeAttribute('aria-activedescendant');
+            activeIndex = -1;
         }
 
-        suggestions.forEach(suggestion => {
-            const div = document.createElement("div");
-            div.textContent = suggestion;
-            div.addEventListener("click", async () => {
-                input.value = suggestion;
-                suggestionBox.innerHTML = "";
-                suggestionBox.style.display = "none";
-                input.style.borderColor = "";
-                autoFillCP(index);
-                await Promise.all([tryAPIFillCP(index), tryAPIFillShiny(index)]);
+        function setActive(next) {
+            if (!options.length) return;
+            activeIndex = (next + options.length) % options.length;
+            [...list.children].forEach((el, i) => {
+                const isActive = i === activeIndex;
+                el.classList.toggle('is-active', isActive);
+                el.setAttribute('aria-selected', String(isActive));
+                if (isActive) {
+                    input.setAttribute('aria-activedescendant', el.id);
+                    el.scrollIntoView({ block: 'nearest' });
+                }
             });
-            suggestionBox.appendChild(div);
+        }
+
+        function choose(name) {
+            input.value = name;
+            input.style.borderColor = '';
+            close();
+            fillFromPokemon(index);
+        }
+
+        function open(matches) {
+            options = matches;
+            list.innerHTML = '';
+            if (!matches.length) return close();
+
+            matches.forEach((name, i) => {
+                const option = document.createElement('div');
+                option.id = `${listId}-option-${i}`;
+                option.className = 'suggestion';
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', 'false');
+                option.textContent = name;
+                // mousedown would blur the input and close the list before click lands
+                option.addEventListener('mousedown', event => event.preventDefault());
+                option.addEventListener('click', () => choose(name));
+                list.appendChild(option);
+            });
+
+            list.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            activeIndex = -1;
+        }
+
+        input.addEventListener('keydown', event => {
+            const isOpen = !list.hidden;
+            switch (event.key) {
+                case 'ArrowDown':
+                    event.preventDefault();
+                    if (isOpen) setActive(activeIndex + 1);
+                    else { open(matchesFor(input.value)); setActive(0); }
+                    break;
+                case 'ArrowUp':
+                    if (!isOpen) break;
+                    event.preventDefault();
+                    setActive(activeIndex - 1);
+                    break;
+                case 'Enter':
+                    if (isOpen && activeIndex >= 0) {
+                        event.preventDefault();
+                        choose(options[activeIndex]);
+                    }
+                    break;
+                case 'Escape':
+                    if (isOpen) { event.preventDefault(); close(); }
+                    break;
+                case 'Tab':
+                    close();
+                    break;
+            }
         });
-        suggestionBox.style.display = "block";
+
+        input.addEventListener('input', () => open(matchesFor(input.value)));
+        input.addEventListener('blur', () => setTimeout(close, 120));
+
+        return { close };
     }
 
-    // Handle Pokémon input for autocomplete and autofill
-    const debouncedAutoFillCP = debounce(autoFillCP, 300);
-    function handlePokemonInput(index) {
-        const input = document.getElementById(`pokemon-${index}`);
-        const value = input.value.toLowerCase();
-        const suggestions = pokemonList
-            .filter(p => p.toLowerCase().startsWith(value))
-            .slice(0, 5); // Limit to 5 suggestions
-        showSuggestions(input, suggestions, index);
-        debouncedAutoFillCP(index); // Trigger autofill with debounce
+    /**
+     * Fill CP and shiny for one form row. Every field is looked up and guarded
+     * independently — most event types render no CP fields at all, and Max
+     * Battles renders hundo without whundo.
+     */
+    async function fillFromPokemon(index) {
+        const name = document.getElementById(`pokemon-${index}`)?.value?.trim();
+        if (!name) return;
+
+        const hundoInput = document.getElementById(`hundo-${index}`);
+        const whundoInput = document.getElementById(`whundo-${index}`);
+        const shinySelect = document.getElementById(`shiny-${index}`);
+
+        const jobs = [];
+
+        if (hundoInput || whundoInput) {
+            jobs.push(getCatchCP(name).then(cp => {
+                if (hundoInput) hundoInput.value = cp ? cp.hundo : '';
+                if (whundoInput) whundoInput.value = cp ? cp.whundo : '';
+            }));
+        }
+        if (shinySelect) {
+            jobs.push(isShinyReleased(name).then(released => {
+                if (released !== null) shinySelect.value = released ? 'yes' : 'no';
+            }));
+        }
+        await Promise.all(jobs);
     }
 
-    // Generate form fields
+    // -------------------------------------------------------- form fields ----
+
     function addInputs(num) {
-        dynamicInputs.innerHTML = "";
-        const today = new Date().toISOString().split("T")[0]; // Today's date in YYYY-MM-DD
+        const config = eventConfig[selectedEventType];
+        if (!config) return;
+
+        const today = new Date().toISOString().split('T')[0];
+        const sections = [];
+
         for (let i = 0; i < num; i++) {
-            const config = eventConfig[selectedEventType];
             let fields = `
                 <div class="dynamic-section">
-                    <h3>${selectedEventType} ${i + 1}</h3>
+                    <h3>${escapeHTML(selectedEventType)} ${i + 1}</h3>
                     <label>Pokémon: <input type="text" id="pokemon-${i}" required></label>
-                    <label>Shiny Available? 
+                    <label>Shiny Available?
                         <select id="shiny-${i}" required>
                             <option value="yes">Yes</option>
                             <option value="no">No</option>
                         </select>
                     </label>
-                    <label>Date: <input type="date" id="date-${i}" value="${today}" required></label>
-            `;
+                    <label>Date: <input type="date" id="date-${i}" value="${today}" required></label>`;
 
-            // Add bonus fields
             if (config.bonuses.length) {
                 for (let j = 1; j <= config.maxBonuses; j++) {
                     fields += `
                         <label>Bonus ${j}:
                             <select id="bonus${j}-${i}">
                                 <option value="None">None</option>
-                                ${config.bonuses.map(b => `<option value="${b}">${b}</option>`).join("")}
+                                ${config.bonuses.map(b => `<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`).join('')}
                             </select>
-                        </label>
-                    `;
+                        </label>`;
                 }
             }
 
-            // Add special fields (not required)
-            config.specialFields.forEach(field => {
-                fields += `<label>${field.replace(/^\w/, c => c.toUpperCase())}: <input type="text" id="${field}-${i}"></label>`;
-            });
+            for (const field of config.specialFields) {
+                const label = field.replace(/^\w/, c => c.toUpperCase());
+                fields += `<label>${label}: <input type="text" id="${field}-${i}"></label>`;
+            }
 
-            fields += "</div>";
-            dynamicInputs.innerHTML += fields;
+            sections.push(fields + '</div>');
         }
 
-        // Add input listeners for Pokémon fields (replaces inline oninput)
+        // Build the whole block, then assign once — appending in the loop reparses
+        // everything already rendered on every iteration.
+        dynamicInputs.innerHTML = sections.join('');
+
         dynamicInputs.querySelectorAll('input[id^="pokemon-"]').forEach(input => {
-            const index = parseInt(input.id.split('-')[1]);
-            input.addEventListener('input', () => handlePokemonInput(index));
+            const index = Number(input.id.split('-')[1]);
+            attachAutocomplete(input, index);
         });
 
-        // Add real-time validation for required fields
-        dynamicInputs.querySelectorAll("input[required], select[required]").forEach(input => {
-            input.addEventListener("input", () => {
-                input.style.borderColor = input.value ? "" : "var(--error-red)";
-                if (input.id.startsWith("pokemon-")) {
-                    const index = parseInt(input.id.split("-")[1]);
-                    const value = input.value.toLowerCase();
-                    const suggestions = pokemonList
-                        .filter(p => p.toLowerCase().startsWith(value))
-                        .slice(0, 5);
-                    showSuggestions(input, suggestions, index);
-                }
-            });
-
-            // Hide suggestions on blur
-            input.addEventListener("blur", () => {
-                const suggestionBox = document.getElementById(`suggestions-${input.id.split("-")[1]}`);
-                if (suggestionBox) {
-                    setTimeout(() => suggestionBox.style.display = "none", 200);
-                }
+        dynamicInputs.querySelectorAll('input[required], select[required]').forEach(field => {
+            field.addEventListener('input', () => {
+                field.style.borderColor = field.value ? '' : 'var(--down)';
             });
         });
     }
 
-    // Generate descriptions (now with dynamic location)
+    // ---------------------------------------------------------- rendering ----
+
+    function descriptionCard({ imageUrl, name, text }) {
+        const image = imageUrl
+            ? `<img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(name)}" class="pokemon-image">`
+            : '<p class="no-image">No image</p>';
+
+        return `<div class="description">
+                ${image}
+                <textarea readonly aria-label="Description for ${escapeHTML(name)}">${escapeHTML(text)}</textarea>
+                <button type="button" class="btn btn--ghost btn--sm" data-copy>Copy</button>
+                <span class="copy-feedback" role="status" aria-live="polite"></span>
+            </div>`;
+    }
+
+    const renderOutput = parts => {
+        output.innerHTML = `<h2>Generated Descriptions</h2>${parts.join('')}`;
+    };
+
+    // -------------------------------------------------- manual generation ----
+
     async function generateDescriptions() {
-        const num = parseInt(numDescriptionsInput.value);
+        clearMessages(formMessages);
+
+        const num = parseInt(numDescriptionsInput.value, 10);
         if (isNaN(num) || num < 1) {
-            alert("Please enter a valid number of descriptions.");
-            return;
+            return showMessages(formMessages, notice('Check', 'Enter how many descriptions you need.', 'error'));
         }
 
-        // Get dynamic location
-        const locationType = document.querySelector('input[name="location-type"]:checked')?.value;
-        let location = "Sundance Park";
-        if (locationType === "custom") {
-            location = customLocationInput.value.trim();
-            if (!location) {
-                alert("Please enter a custom location.");
-                return;
-            }
+        const custom = chosenLocation('location-type', customLocationInput);
+        if (custom === '') {
+            return showMessages(formMessages, notice('Check', 'Enter a custom location, or switch back to Sundance Park.', 'error'));
         }
 
         const config = eventConfig[selectedEventType];
-
-        // Collect and validate all form data first
         const items = [];
+        const problems = [];
+
         for (let i = 0; i < num; i++) {
             const pokemon = document.getElementById(`pokemon-${i}`)?.value?.trim();
-            const dateInput = document.getElementById(`date-${i}`)?.value;
-            const shinyAvailable = document.getElementById(`shiny-${i}`)?.value === "yes";
+            const dateValue = document.getElementById(`date-${i}`)?.value;
 
-            if (!pokemon || !dateInput) {
-                alert(`Missing required fields for description ${i + 1}.`);
-                return;
+            if (!pokemon || !dateValue) {
+                problems.push(notice('Check', `Description ${i + 1} is missing a Pokémon or a date.`, 'error'));
+                continue;
             }
-
-            const formattedDate = formatDate(dateInput);
+            const formattedDate = formatDate(dateValue);
             if (!formattedDate) {
-                alert(`Invalid or past date for description ${i + 1}.`);
-                return;
+                problems.push(notice('Check', `Description ${i + 1} has a date in the past.`, 'error'));
+                continue;
             }
 
             items.push({
                 pokemon,
                 formattedDate,
-                shinyAvailable,
-                bonuses: config.bonuses.length ? collectBonuses(i, config.maxBonuses) : "",
-                hundo: document.getElementById(`hundo-${i}`)?.value?.trim() || "",
-                whundo: document.getElementById(`whundo-${i}`)?.value?.trim() || "",
-                attack: document.getElementById(`attack-${i}`)?.value?.trim() || ""
+                shinyAvailable: document.getElementById(`shiny-${i}`)?.value === 'yes',
+                bonuses: collectBonuses(i, config),
+                hundo: document.getElementById(`hundo-${i}`)?.value?.trim() || '',
+                whundo: document.getElementById(`whundo-${i}`)?.value?.trim() || '',
+                attack: document.getElementById(`attack-${i}`)?.value?.trim() || ''
             });
         }
 
-        // Fetch all images in parallel
-        const imageUrls = await Promise.all(items.map(({ pokemon }) => fetchPokemonImage(pokemon)));
+        // Report every problem at once rather than stopping at the first.
+        if (problems.length) showMessages(formMessages, problems.join(''));
+        if (!items.length) return;
 
-        const descriptions = ["<h2>Generated Descriptions</h2>"];
-        for (let i = 0; i < items.length; i++) {
-            const { pokemon, formattedDate, shinyAvailable, bonuses, hundo, whundo, attack } = items[i];
-            const imageUrl = imageUrls[i];
-            const imageTag = imageUrl ? `<img src="${imageUrl}" alt="${pokemon} image" class="pokemon-image">` : "<p>No image available</p>";
+        const images = await Promise.all(items.map(item => fetchPokemonImage(item.pokemon)));
 
-            const shinyText = shinyAvailable ? constants.shinyText : "";
-            let eventText = `from ${config.time} ${constants.eventEmojis}\n\n`;
-
-            if (bonuses) {
-                const bonusHeader = bonuses.split("\n").length > 1 ? constants.bonusHeaderMultiple : constants.bonusHeaderSingle;
-                eventText += `${bonusHeader}\n${bonuses}\n\n`;
-            }
-
-            if (selectedEventType === "Raid Hour" || selectedEventType === "Raid Day") {
-                eventText += `💯 - ${hundo} / WB - ${whundo}\n\n`;
-            }
-            if (selectedEventType === "Max Battles") {
-                eventText += `💯 - ${hundo}\n\n`;
-            }
-            if (config.specialFields.includes("attack") && attack) {
-                eventText += `Evolve for featured attack: ${attack}\n\n`;
-            }
-
-            descriptions.push(`
-                <div class="description">
-                    ${imageTag}
-                    <textarea readonly>${pokemon} ${selectedEventType}
-🎈 Join us at ${location} on ${formattedDate} for the ${pokemon} ${selectedEventType} ${eventText}${shinyText}${constants.checkInText}</textarea>
-                    <button onclick="copyToClipboard(this)">Copy</button>
-                    <span class="copy-feedback">Copied!</span>
-                </div>
-            `);
-        }
-
-        output.innerHTML = descriptions.join("");
+        renderOutput(items.map((item, i) => descriptionCard({
+            imageUrl: images[i],
+            name: item.pokemon,
+            text: renderDescription({ ...item, eventType: selectedEventType, location: custom ?? undefined })
+        })));
     }
 
-    // Collect bonuses
-    function collectBonuses(index, numBonuses) {
+    function collectBonuses(index, config) {
+        if (!config.bonuses.length) return [];
         const bonuses = [];
-        for (let j = 1; j <= numBonuses; j++) {
-            const bonus = document.getElementById(`bonus${j}-${index}`)?.value;
-            if (bonus && bonus !== "None") bonuses.push(`- ${bonus}`);
+        for (let j = 1; j <= config.maxBonuses; j++) {
+            const value = document.getElementById(`bonus${j}-${index}`)?.value;
+            if (value && value !== 'None') bonuses.push(value);
         }
-        return bonuses.join("\n");
+        return bonuses;
     }
 
-    // Format date
-    function formatDate(inputDate) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const date = new Date(inputDate + 'T00:00:00');
-        if (date < today) return null;
-        const options = { month: "long", day: "numeric" };
-        const day = date.getDate();
-        const suffix = getDaySuffix(day);
-        return date.toLocaleDateString("en-US", options).replace(day, `${day}${suffix}`);
-    }
-
-    // Get day suffix
-    function getDaySuffix(day) {
-        if (day >= 11 && day <= 13) return "th";
-        switch (day % 10) {
-            case 1: return "st";
-            case 2: return "nd";
-            case 3: return "rd";
-            default: return "th";
-        }
-    }
-
-    // ---- Bulk Import Helpers ----
-
-    function parseBulkTable(text) {
-        const events = [];
-        for (const line of text.trim().split('\n')) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith('|')) continue;
-            if (/^\|[-\s|:]+\|$/.test(trimmed)) continue; // separator row
-            const cols = trimmed.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
-            if (cols.length < 3) continue;
-            if (/event name/i.test(cols[0])) continue; // header row
-            const [rawName, details, date] = cols;
-            const name = rawName.replace(/\*\*/g, '').replace(/^[^\w]+/, '').trim();
-            if (name && details && date) events.push({ name, details, date });
-        }
-        return events;
-    }
-
-    function mapEventTypeFromName(name) {
-        const n = name.toLowerCase();
-        if (n.includes('community day classic')) return 'Community Day Classic';
-        if (n.includes('community day')) return 'Community Day';
-        if (n.includes('hatch day')) return 'Hatch Day';
-        if (n.includes('raid day')) return 'Raid Day';
-        if (n.includes('raid hour')) return 'Raid Hour';
-        if (n.includes('spotlight hour')) return 'Spotlight Hour';
-        if (n.includes('research day')) return 'Research Day';
-        if (n.includes('max battle')) return 'Max Battles';
-        return null;
-    }
-
-    function extractPokemonFromEvent(name) {
-        const dashMatch = name.match(/[–—-]\s*(.+)$/);
-        if (dashMatch) return dashMatch[1].trim();
-        const typePatterns = [
-            'Community Day Classic', 'Community Day', 'Hatch Day',
-            'Raid Day', 'Raid Hour', 'Spotlight Hour', 'Research Day', 'Max Battle Day', 'Max Battles'
-        ];
-        for (const pattern of typePatterns) {
-            const idx = name.toLowerCase().indexOf(pattern.toLowerCase());
-            if (idx > 0) {
-                return name.substring(0, idx).replace(/^Replay:\s*/i, '').trim();
-            }
-        }
-        return '';
-    }
-
-    function parseDateString(dateStr) {
-        const monthMap = {
-            jan:1, january:1, feb:2, february:2, mar:3, march:3,
-            apr:4, april:4, may:5, jun:6, june:6, jul:7, july:7,
-            aug:8, august:8, sep:9, september:9, oct:10, october:10,
-            nov:11, november:11, dec:12, december:12
-        };
-        const match = dateStr.match(/([A-Za-z]+)\s+(\d+)/);
-        if (!match) return null;
-        const month = monthMap[match[1].toLowerCase()];
-        const day = parseInt(match[2]);
-        if (!month || !day) return null;
-        const now = new Date();
-        let year = now.getFullYear();
-        if (month < now.getMonth() + 1) year++;
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    }
-
-    function extractBonusesFromDetails(eventType, details) {
-        const config = eventConfig[eventType];
-        if (!config || !config.bonuses.length) return [];
-        const found = [];
-        const patterns = [
-            { re: /3[x×]\s*stardust/i,                                        bonus: '3x Catch Stardust' },
-            { re: /2[x×]\s*catch xp\s*[&]\s*stardust|2[x×]\s*xp\s*[&]\s*stardust/i, bonus: '2x Catch XP & Stardust' },
-            { re: /2[x×]\s*catch xp|2[x×]\s*xp(?!\s*[&])/i,                  bonus: '2x Catch XP' },
-            { re: /2[x×]\s*catch stardust|2[x×]\s*stardust/i,                 bonus: '2x Catch Stardust' },
-            { re: /2[x×]\s*candy\s*[&]\s*xl|2[x×]\s*candy.*xl/i,             bonus: '2x Catch Candy & XL Chance' },
-            { re: /2[x×]\s*catch candy|2[x×]\s*candy(?!\s*[&xl])/i,          bonus: '2x Catch Candy' },
-            { re: /2[x×]\s*transfer candy/i,                                   bonus: '2x Transfer Candy' },
-            { re: /2[x×]\s*evolution xp|2[x×]\s*evolv/i,                     bonus: '2x Evolution XP' },
-            { re: /[¼]|1\/4\s*hatch/i,                                        bonus: '1/4 Hatch Distance' },
-            { re: /[½]|1\/2\s*hatch/i,                                        bonus: '1/2 Hatch Distance' },
-            { re: /3\s*hr\s*lures?/i,                                         bonus: '3 HR Lures / Incense' },
-            { re: /boosted shiny|increased shiny/i,                           bonus: 'Increased shiny chance' },
-            { re: /5\s*photobomb/i,                                           bonus: '5 Photobomb Encounters' },
-            { re: /extra special trade|special trade/i,                       bonus: 'Extra Special Trade' },
-            { re: /free raid pass/i,                                          bonus: '5 free raid passes by spinning gyms, 6 total' },
-            { re: /remote raid/i,                                             bonus: 'Remote raids increased to 20' },
-            { re: /1\.5[x×]\s*xp from raids/i,                               bonus: '1.5x XP from Raids' },
-            { re: /extra raid bonus/i,                                        bonus: 'Extra Raid Bonus' },
-            { re: /1\/4.*adventure|adventure.*1\/4/i,                         bonus: '1/4 Adventure Distance for MP' },
-            { re: /mp.*1600|1600.*mp/i,                                       bonus: 'MP Collection raised to 1600' },
-            { re: /8[x×].*mp|8[x×].*power spot/i,                            bonus: '8x MP from Power Spots' },
-            { re: /2[x×].*mp.*explor/i,                                       bonus: '2x MP for Exploring' },
-        ];
-        for (const { re, bonus } of patterns) {
-            if (re.test(details) && config.bonuses.includes(bonus) && !found.includes(bonus)) {
-                found.push(bonus);
-                if (found.length >= config.maxBonuses) break;
-            }
-        }
-        return found;
-    }
-
-    function extractAttackFromDetails(details) {
-        const match = details.match(/(?:gets|learns)\s+([A-Z][A-Za-z\s]+?)(?:[,.]|$)/);
-        return match ? match[1].trim() : '';
-    }
-
-    function isShinyInDetails(details) {
-        return /shiny/i.test(details);
-    }
-
-    function lookupCP(pokemonName) {
-        const key = Object.keys(pokemonCPData).find(k => k.toLowerCase() === pokemonName.toLowerCase());
-        return key ? pokemonCPData[key] : null;
-    }
+    // ---------------------------------------------------- bulk generation ----
 
     async function generateBulkDescriptions() {
-        const input = document.getElementById("bulk-input").value.trim();
-        if (!input) {
-            alert("Please paste an event list.");
-            return;
+        clearMessages(bulkMessages);
+
+        const text = bulkInput.value.trim();
+        if (!text) {
+            return showMessages(bulkMessages, notice('Check', 'Paste an event list first.', 'error'));
         }
-        const events = parseBulkTable(input);
+
+        const events = parseBulkTable(text);
         if (!events.length) {
-            alert("No events found. Make sure the input is a markdown table.");
-            return;
+            return showMessages(bulkMessages, notice('Check', 'No events found — the input needs to be a markdown table with Event Name, Details and Date columns.', 'error'));
         }
 
-        const bulkLocationType = document.querySelector('input[name="bulk-location-type"]:checked')?.value;
-        let location = "Sundance Park";
-        if (bulkLocationType === "custom") {
-            location = document.getElementById("bulk-custom-location").value.trim();
-            if (!location) {
-                alert("Please enter a custom location.");
-                return;
-            }
+        const custom = chosenLocation('bulk-location-type', bulkCustomLocation);
+        if (custom === '') {
+            return showMessages(bulkMessages, notice('Check', 'Enter a custom location, or switch back to Sundance Park.', 'error'));
         }
 
-        // Parse all events synchronously, collect warnings for unparseable rows
-        const parsed = [];
-        const warnings = [];
-        for (const event of events) {
-            const eventType = mapEventTypeFromName(event.name);
-            if (!eventType) {
-                warnings.push(`<p style="color:var(--hover-orange)">⚠️ Could not identify event type for: <strong>${event.name}</strong></p>`);
-                continue;
-            }
-            const config = eventConfig[eventType];
-            const pokemon = extractPokemonFromEvent(event.name);
-            const dateStr = parseDateString(event.date);
-            const formattedDate = dateStr ? formatDate(dateStr) : null;
-            if (!formattedDate) {
-                warnings.push(`<p style="color:var(--hover-orange)">⚠️ Could not parse date for: <strong>${event.name}</strong> (${event.date})</p>`);
-                continue;
-            }
-            const localCP = pokemon ? lookupCP(pokemon) : null;
-            parsed.push({
-                eventType, config, pokemon, formattedDate,
-                originalName: event.name,
-                shinyAvailable: isShinyInDetails(event.details),
-                bonuses: extractBonusesFromDetails(eventType, event.details),
-                localCP,
-                needsAPICP: !localCP && pokemon && (eventType === 'Raid Hour' || eventType === 'Raid Day'),
-                attack: config.specialFields.includes('attack') ? extractAttackFromDetails(event.details) : ''
-            });
-        }
+        const rows = events.map(event => parseEventRow(event));
+        const skipped = rows.filter(row => !row.ok).map(row =>
+            notice('Skipped', `${escapeHTML(row.reason)} <strong>${escapeHTML(row.event.name)}</strong>` +
+                (row.detail ? ` (${escapeHTML(row.detail)})` : ''))
+        );
+        const usable = rows.filter(row => row.ok);
 
-        // Fetch all images, missing CPs, and shiny status in parallel
-        const [imageUrls, apiCPs, shinyResults] = await Promise.all([
-            Promise.all(parsed.map(p => p.pokemon ? fetchPokemonImage(p.pokemon) : Promise.resolve(null))),
-            Promise.all(parsed.map(p => p.needsAPICP ? fetchPokemonGOCP(p.pokemon) : Promise.resolve(null))),
-            Promise.all(parsed.map(p => p.pokemon ? isPokemonShinyReleased(p.pokemon) : Promise.resolve(null)))
+        if (skipped.length) showMessages(bulkMessages, skipped.join(''));
+        if (!usable.length) return;
+
+        const [images, cps, shinyFlags] = await Promise.all([
+            Promise.all(usable.map(row => row.pokemon ? fetchPokemonImage(row.pokemon) : null)),
+            Promise.all(usable.map(row => row.needsCP ? getCatchCP(row.pokemon) : null)),
+            Promise.all(usable.map(row => row.needsShinyCheck ? isShinyReleased(row.pokemon) : null))
         ]);
 
-        const descriptions = ["<h2>Generated Descriptions</h2>", ...warnings];
-        for (let i = 0; i < parsed.length; i++) {
-            const { eventType, config, pokemon, formattedDate, originalName, bonuses, localCP, attack } = parsed[i];
-            // API shiny check takes priority; fall back to text detection if API failed (null)
-            const shinyAvailable = shinyResults[i] !== null ? shinyResults[i] : parsed[i].shinyAvailable;
-            const cpData = localCP || apiCPs[i];
-            const hundo = cpData?.hundo ?? '';
-            const whundo = cpData?.whundo ?? '';
+        renderOutput(usable.map((row, i) => {
+            const cp = cps[i];
+            return descriptionCard({
+                imageUrl: images[i],
+                name: row.displayName,
+                text: renderDescription({
+                    eventType: row.eventType,
+                    pokemon: row.displayName,
+                    location: custom ?? undefined,
+                    formattedDate: row.formattedDate,
+                    bonuses: row.bonuses,
+                    hundo: cp?.hundo ?? '',
+                    whundo: cp?.whundo ?? '',
+                    attack: row.attack,
+                    // The released-shiny list beats keyword-spotting; fall back if it failed.
+                    shinyAvailable: shinyFlags[i] !== null ? shinyFlags[i] : row.shinyFromText
+                })
+            });
+        }));
 
-            const imageUrl = imageUrls[i];
-            const imageTag = imageUrl
-                ? `<img src="${imageUrl}" alt="${pokemon} image" class="pokemon-image">`
-                : "<p>No image available</p>";
-
-            const shinyText = shinyAvailable ? constants.shinyText : '';
-            const displayName = pokemon || originalName;
-            let eventText = `from ${config.time} ${constants.eventEmojis}\n\n`;
-
-            if (bonuses.length) {
-                const bonusHeader = bonuses.length > 1 ? constants.bonusHeaderMultiple : constants.bonusHeaderSingle;
-                eventText += `${bonusHeader}\n${bonuses.map(b => `- ${b}`).join('\n')}\n\n`;
-            }
-            if (eventType === 'Raid Hour' || eventType === 'Raid Day') {
-                eventText += `💯 - ${hundo} / WB - ${whundo}\n\n`;
-            }
-            if (eventType === 'Max Battles') {
-                eventText += `💯 - ${hundo}\n\n`;
-            }
-            if (attack) {
-                eventText += `Evolve for featured attack: ${attack}\n\n`;
-            }
-
-            descriptions.push(`
-                <div class="description">
-                    ${imageTag}
-                    <textarea readonly>${displayName} ${eventType}
-🎈 Join us at ${location} on ${formattedDate} for the ${displayName} ${eventType} ${eventText}${shinyText}${constants.checkInText}</textarea>
-                    <button onclick="copyToClipboard(this)">Copy</button>
-                    <span class="copy-feedback">Copied!</span>
-                </div>
-            `);
-        }
-
-        output.innerHTML = descriptions.join('');
         output.scrollIntoView({ behavior: 'smooth' });
     }
 
-    // Copy to clipboard
-    window.copyToClipboard = async function (button) {
-        const textarea = button.previousElementSibling;
-        const feedback = button.nextElementSibling;
+    // ------------------------------------------------------------- events ----
 
-        if (textarea) {
-            try {
-                await navigator.clipboard.writeText(textarea.value);
-                feedback.textContent = "Copied!";
-                feedback.style.color = "green";
-                feedback.style.display = "inline";
-                feedback.addEventListener("click", () => feedback.style.display = "none", { once: true });
-                setTimeout(() => feedback.style.display = "none", 5000);
-            } catch (err) {
-                feedback.textContent = "Copy failed!";
-                feedback.style.color = "var(--error-red)";
-                feedback.style.display = "inline";
-                feedback.addEventListener("click", () => feedback.style.display = "none", { once: true });
-                setTimeout(() => feedback.style.display = "none", 5000);
-                console.error("Failed to copy:", err);
-            }
+    Object.keys(eventConfig).forEach(name => {
+        const button = document.getElementById(`${name.toLowerCase().replace(/ /g, '-')}-btn`);
+        if (!button) return;
+        button.addEventListener('click', () => {
+            selectedEventType = name;
+            document.querySelectorAll('.event-btn').forEach(btn =>
+                btn.classList.toggle('is-active', btn === button));
+            eventForm.style.display = 'block';
+            numDescriptionsInput.value = '1';
+            addInputs(1);
+            clearMessages(formMessages);
+            renderOutput([]);
+        });
+    });
+
+    numDescriptionsInput.addEventListener('input', debounce(() => {
+        let num = parseInt(numDescriptionsInput.value, 10);
+        if (num > MAX_DESCRIPTIONS) {
+            num = MAX_DESCRIPTIONS;
+            numDescriptionsInput.value = String(MAX_DESCRIPTIONS);
         }
-    };
+        if (num > 0) addInputs(num);
+        else dynamicInputs.innerHTML = '';
+    }, 300));
+
+    document.getElementById('generate-btn').addEventListener('click', debounce(generateDescriptions, 300));
+    document.getElementById('bulk-generate-btn').addEventListener('click', debounce(generateBulkDescriptions, 300));
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+        eventForm.reset();
+        dynamicInputs.innerHTML = '';
+        eventForm.style.display = 'none';
+        selectedEventType = '';
+        document.querySelectorAll('.event-btn').forEach(btn => btn.classList.remove('is-active'));
+        syncLocationVisibility('location-type', customLocationInput);
+        clearMessages(formMessages);
+        renderOutput([]);
+    });
+
+    document.querySelectorAll('input[name="location-type"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            syncLocationVisibility('location-type', customLocationInput);
+            persist({ locationType: radio.value, customLocation: customLocationInput.value });
+        });
+    });
+
+    document.querySelectorAll('input[name="bulk-location-type"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            syncLocationVisibility('bulk-location-type', bulkCustomLocation);
+            persist({ bulkLocationType: radio.value, bulkCustomLocation: bulkCustomLocation.value });
+        });
+    });
+
+    bulkInput.addEventListener('input', debounce(() => persist({ bulkInput: bulkInput.value }), 400));
+    bulkCustomLocation.addEventListener('input', debounce(() => persist({ bulkCustomLocation: bulkCustomLocation.value }), 400));
+    customLocationInput.addEventListener('input', debounce(() => persist({ customLocation: customLocationInput.value }), 400));
+
+    // One delegated handler for every Copy button, present and future.
+    output.addEventListener('click', async event => {
+        const button = event.target.closest('[data-copy]');
+        if (!button) return;
+
+        const card = button.closest('.description');
+        const textarea = card?.querySelector('textarea');
+        const feedback = card?.querySelector('.copy-feedback');
+        if (!textarea || !feedback) return;
+
+        try {
+            await navigator.clipboard.writeText(textarea.value);
+            feedback.textContent = 'Copied';
+            feedback.style.color = 'var(--live)';
+        } catch (error) {
+            feedback.textContent = 'Copy failed';
+            feedback.style.color = 'var(--down)';
+            console.error('Failed to copy:', error);
+        }
+        feedback.style.display = 'inline';
+        setTimeout(() => { feedback.style.display = 'none'; }, 5000);
+    });
+
+    restore();
 });

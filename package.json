@@ -1,0 +1,14 @@
+{
+  "name": "sundance-dgen",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Event description generator for Pokémon GO meetups on Campfire",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "refresh-data": "node scripts/refresh-data.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
