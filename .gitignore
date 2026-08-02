@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+
+# Local editor/tooling config — contains machine-specific absolute paths
+.claude/
