@@ -3,3 +3,8 @@ node_modules/
 
 # Local editor/tooling config — contains machine-specific absolute paths
 .claude/
+
+# Handoff notes are local working documents and are never committed
+HANDOFF.md
+THEME-HANDOFF.md
+*-HANDOFF.md
