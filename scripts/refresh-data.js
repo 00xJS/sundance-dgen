@@ -13,7 +13,7 @@
  * Run weekly by .github/workflows/refresh-data.yml.
  */
 
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,6 +75,31 @@ function trimShiny(raw) {
     return [...names].sort();
 }
 
+/**
+ * Write a snapshot, but keep the previous `generated` timestamp when the
+ * substantive data is unchanged.
+ *
+ * Upstream data moves rarely, while the timestamp moves every run — so writing
+ * it unconditionally makes the file differ every single week and the workflow's
+ * "commit if anything changed" guard fires on pure noise. Preserving the old
+ * timestamp leaves the file byte-identical, so there is genuinely nothing to
+ * commit unless the Pokémon data itself moved.
+ *
+ * @returns true if the file's contents actually changed
+ */
+async function writeIfChanged(path, payload, dataKey) {
+    let existing = null;
+    try {
+        existing = JSON.parse(await readFile(path, "utf8"));
+    } catch { /* first run, or unreadable — write it fresh */ }
+
+    if (existing && JSON.stringify(existing[dataKey]) === JSON.stringify(payload[dataKey])) {
+        return false;
+    }
+    await writeFile(path, JSON.stringify(payload) + "\n");
+    return true;
+}
+
 async function main() {
     const generated = new Date().toISOString();
 
@@ -90,16 +115,21 @@ async function main() {
     if (names.length < 200) throw new Error(`Only ${names.length} shiny names — refusing to write a truncated snapshot`);
 
     await mkdir(DATA_DIR, { recursive: true });
-    await writeFile(
+    const statsChanged = await writeIfChanged(
         resolve(DATA_DIR, "pokemon-stats.json"),
-        JSON.stringify({ generated, source: SOURCES.stats, pokemon }) + "\n"
+        { generated, source: SOURCES.stats, pokemon },
+        "pokemon"
     );
-    await writeFile(
+    const shinyChanged = await writeIfChanged(
         resolve(DATA_DIR, "shiny-pokemon.json"),
-        JSON.stringify({ generated, source: SOURCES.shiny, names }) + "\n"
+        { generated, source: SOURCES.shiny, names },
+        "names"
     );
 
-    console.log(`Wrote ${pokemon.length} Pokémon stats and ${names.length} shiny names (generated ${generated}).`);
+    console.log(`Fetched ${pokemon.length} Pokémon stats and ${names.length} shiny names.`);
+    console.log(statsChanged || shinyChanged
+        ? `Snapshots updated (generated ${generated}).`
+        : "Snapshots unchanged — upstream data is identical, nothing to commit.");
     auditOverrides(pokemon);
     checkResolvable(pokemon);
 }
