@@ -28,14 +28,33 @@ From each row the tool works out:
 | Field | How |
 | --- | --- |
 | Event type | Matched against the known types in the event name |
-| Pokémon | The part of the name that isn't the event type (hyphenated names like `Ho-Oh` and `Porygon-Z` are handled) |
-| Date | Month + day; the year rolls forward if the month has already passed |
+| Pokémon | The part of the name that isn't the event type. Hyphenated names like `Ho-Oh` and `Porygon-Z` are handled, and several can be listed — see below |
+| Date | Month + day. **A written year is used as-is.** Without one, the current year is assumed, rolling forward if that month has already been and gone |
 | Bonuses | Keyword-matched from the details column, capped at the event type's limit |
 | Shiny | Looked up against the released-shiny list, falling back to whether "shiny" appears in the details |
 | Catch CP | Curated table first, then computed from base stats |
 | Featured attack | Pulled from "gets"/"learns" phrasing in the details |
 
 Rows it can't read are reported inline as a **Skipped** notice and don't stop the rest of the batch.
+
+**Put the Pokémon in the Event Name**, not the Details column — `Groudon Raid Hour`, not `Raid Hour` with "Groudon" in Details.
+
+**Several featured Pokémon** can be listed with commas, `&`, `and` or `or`. Each gets its own labelled CP line, and their artwork stacks into one square tile (three arrange as a pyramid):
+
+```
+| Articuno, Zapdos & Moltres Raid Hour | five-star raids | September 2 |
+```
+
+```
+Articuno, Zapdos & Moltres Raid Hour
+🎈 Join us at Sundance Park on September 2nd for the Articuno, Zapdos & Moltres Raid Hour from 6-7PM 💃☀️🕺
+
+💯 Articuno - 1743 / WB - 2179
+💯 Zapdos - 2015 / WB - 2519
+💯 Moltres - 1980 / WB - 2475
+```
+
+**Events with nothing announced yet** work too — a bare `Raid Hour` renders as just "Raid Hour" with no CP line, rather than inventing a name or leaving an empty one.
 
 ### Manual builder
 

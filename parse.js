@@ -95,7 +95,33 @@ export function extractPokemonFromEvent(name) {
     return "";
 }
 
-/** "August 15" -> "2026-08-15", rolling into next year once the month has passed. */
+/**
+ * Split a featured-Pokémon string into individual names.
+ *
+ * Events regularly feature several: "Articuno, Zapdos & Moltres Raid Hour",
+ * "Magby and Smoochum Hatch Day". Used only for CP and artwork lookups — the
+ * title keeps the original wording, so a themed name that isn't really a list
+ * ("Fire and Ice Hatch Day") still reads correctly, it just resolves nothing.
+ */
+export function splitPokemonNames(text) {
+    if (!text) return [];
+    return String(text)
+        .split(/\s*(?:,|&|\band\b|\bor\b)\s*/i)
+        .map(part => part.trim())
+        .filter(Boolean);
+}
+
+/**
+ * "August 15" -> "2026-08-15".
+ *
+ * An explicit year in the text always wins: "July 4, 2026" means 2026, even
+ * when that date has already passed (the caller then reports it as past, which
+ * is honest — silently moving it to 2027 was not).
+ *
+ * Only when no year is written is one implied: the current year, rolling
+ * forward if that month has already been and gone, so a January schedule
+ * pasted in December lands next January rather than being rejected.
+ */
 export function parseDateString(dateStr, now = new Date()) {
     const monthMap = {
         jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
@@ -103,13 +129,21 @@ export function parseDateString(dateStr, now = new Date()) {
         aug: 8, august: 8, sep: 9, september: 9, oct: 10, october: 10,
         nov: 11, november: 11, dec: 12, december: 12
     };
-    const match = String(dateStr).match(/([A-Za-z]+)\s+(\d+)/);
+    const text = String(dateStr);
+    const match = text.match(/([A-Za-z]+)\s+(\d+)/);
     if (!match) return null;
     const month = monthMap[match[1].toLowerCase()];
     const day = parseInt(match[2], 10);
     if (!month || !day) return null;
-    let year = now.getFullYear();
-    if (month < now.getMonth() + 1) year++;
+
+    // A 4-digit number anywhere in the cell is the year. Guard against reading
+    // the day itself by requiring 4 digits — "July 4" has no year, "July 4-6,
+    // 2026" does. Ranges collapse to the first day.
+    const explicitYear = text.match(/\b(20\d{2})\b/);
+    const year = explicitYear
+        ? parseInt(explicitYear[1], 10)
+        : now.getFullYear() + (month < now.getMonth() + 1 ? 1 : 0);
+
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
@@ -272,11 +306,16 @@ export function renderDescription({
     bonuses = [],
     hundo = "",
     whundo = "",
+    cpList = [],
     attack = "",
     shinyAvailable = false
 }) {
     const config = eventConfig[eventType];
     if (!config) throw new Error(`Unknown event type: ${eventType}`);
+
+    // Some events have no Pokémon to name — an unannounced Raid Hour is just
+    // "Raid Hour", not "Raid Hour Raid Hour".
+    const title = pokemon ? `${pokemon} ${eventType}` : eventType;
 
     let body = `from ${config.time} ${constants.eventEmojis}\n\n`;
 
@@ -285,17 +324,28 @@ export function renderDescription({
         body += `${header}\n${bonuses.map(b => `- ${b}`).join("\n")}\n\n`;
     }
     if (config.specialFields.includes("hundo")) {
-        body += config.specialFields.includes("whundo")
-            ? `💯 - ${hundo} / WB - ${whundo}\n\n`
-            : `💯 - ${hundo}\n\n`;
+        const withWB = config.specialFields.includes("whundo");
+        if (cpList.length > 1) {
+            // Several featured Pokémon — label each line so a reader can tell
+            // which CP belongs to which boss.
+            body += cpList
+                .map(cp => withWB
+                    ? `💯 ${cp.name} - ${cp.hundo} / WB - ${cp.whundo}`
+                    : `💯 ${cp.name} - ${cp.hundo}`)
+                .join("\n") + "\n\n";
+        } else if (String(hundo).trim()) {
+            // Only print the CP line once there is a CP to print. An empty
+            // "💯 -  / WB - " is worse than no line at all in a public post.
+            body += withWB ? `💯 - ${hundo} / WB - ${whundo}\n\n` : `💯 - ${hundo}\n\n`;
+        }
     }
     if (config.specialFields.includes("attack") && attack) {
         body += `Evolve for featured attack: ${attack}\n\n`;
     }
 
     const shinyText = shinyAvailable ? constants.shinyText : "";
-    return `${pokemon} ${eventType}\n` +
-        `🎈 Join us at ${location} on ${formattedDate} for the ${pokemon} ${eventType} ${body}` +
+    return `${title}\n` +
+        `🎈 Join us at ${location} on ${formattedDate} for the ${title} ${body}` +
         `${shinyText}${constants.checkInText}`;
 }
 
@@ -324,6 +374,9 @@ export function parseEventRow(event, now = new Date()) {
         formattedDate,
         shinyFromText: isShinyInDetails(event.details),
         bonuses: extractBonusesFromDetails(eventType, event.details),
+        // Individual names for CP and artwork lookups; `pokemon` stays verbatim
+        // for the title.
+        pokemonNames: splitPokemonNames(pokemon),
         // CP is resolved by the caller (it needs the data layer); this only says
         // whether this event type shows a CP line at all.
         needsCP: !!pokemon && config.specialFields.includes("hundo"),
