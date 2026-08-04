@@ -13,6 +13,7 @@ import {
     extractAttackFromDetails,
     isShinyInDetails,
     lookupCPOverride,
+    splitPokemonNames,
     calcCatchCP,
     indexBaseStats,
     pokeApiSlug,
@@ -205,6 +206,66 @@ describe("renderDescription", () => {
         assert.match(out, /Join us at Sundance Park/);
     });
 
+    // Regression: an unannounced Raid Hour rendered "Raid Hour Raid Hour" with
+    // an empty "💯 -  / WB - " line, both of which shipped into public posts.
+    test("an event with no Pokémon names just the event type", () => {
+        const out = renderDescription({
+            eventType: "Raid Hour",
+            pokemon: "",
+            formattedDate: "August 12th"
+        });
+        assert.equal(out.split("\n")[0], "Raid Hour");
+        assert.match(out, /for the Raid Hour from 6-7PM/);
+        assert.doesNotMatch(out, /Raid Hour Raid Hour/);
+    });
+
+    test("the CP line is omitted when there is no CP to show", () => {
+        const blank = renderDescription({ eventType: "Raid Hour", pokemon: "", formattedDate: "August 12th" });
+        assert.doesNotMatch(blank, /💯/, "no empty CP line");
+
+        const known = renderDescription({
+            eventType: "Raid Hour", pokemon: "Groudon", formattedDate: "August 12th",
+            hundo: 2351, whundo: 2939
+        });
+        assert.match(known, /💯 - 2351 \/ WB - 2939/);
+    });
+
+    test("labels one CP line per Pokémon when several are featured", () => {
+        const out = renderDescription({
+            eventType: "Raid Hour",
+            pokemon: "Articuno, Zapdos & Moltres",
+            formattedDate: "July 1st",
+            cpList: [
+                { name: "Articuno", hundo: 1743, whundo: 2179 },
+                { name: "Zapdos", hundo: 2015, whundo: 2519 },
+                { name: "Moltres", hundo: 1980, whundo: 2475 }
+            ]
+        });
+        assert.equal(out.split("\n")[0], "Articuno, Zapdos & Moltres Raid Hour");
+        assert.match(out, /💯 Articuno - 1743 \/ WB - 2179\n💯 Zapdos - 2015 \/ WB - 2519\n💯 Moltres - 1980 \/ WB - 2475/);
+    });
+
+    test("a single Pokémon keeps the unlabelled CP line", () => {
+        const out = renderDescription({
+            eventType: "Raid Hour", pokemon: "Groudon", formattedDate: "August 12th",
+            hundo: 2351, whundo: 2939, cpList: [{ name: "Groudon", hundo: 2351, whundo: 2939 }]
+        });
+        assert.match(out, /💯 - 2351 \/ WB - 2939/);
+        assert.doesNotMatch(out, /💯 Groudon/);
+    });
+
+    test("Max Battles labels without a weather-boosted value", () => {
+        const out = renderDescription({
+            eventType: "Max Battles", pokemon: "Rillaboom & Cinderace", formattedDate: "August 5th",
+            cpList: [
+                { name: "Rillaboom", hundo: 1500, whundo: 1875 },
+                { name: "Cinderace", hundo: 1600, whundo: 2000 }
+            ]
+        });
+        assert.match(out, /💯 Rillaboom - 1500\n💯 Cinderace - 1600/);
+        assert.doesNotMatch(out, /WB -/);
+    });
+
     test("throws on an unknown event type rather than emitting nonsense", () => {
         assert.throws(() => renderDescription({ eventType: "Nope", pokemon: "X", formattedDate: "y" }), /Unknown event type/);
     });
@@ -236,6 +297,25 @@ not a table row
     });
 });
 
+describe("splitPokemonNames", () => {
+    test("splits the ways schedules actually write lists", () => {
+        assert.deepEqual(splitPokemonNames("Articuno, Zapdos & Moltres"), ["Articuno", "Zapdos", "Moltres"]);
+        assert.deepEqual(splitPokemonNames("Magby and Smoochum"), ["Magby", "Smoochum"]);
+        assert.deepEqual(splitPokemonNames("Uxie, Mesprit or Azelf"), ["Uxie", "Mesprit", "Azelf"]);
+    });
+
+    test("leaves a single name alone, including hyphenated ones", () => {
+        assert.deepEqual(splitPokemonNames("Ho-Oh"), ["Ho-Oh"]);
+        assert.deepEqual(splitPokemonNames("Mr. Mime"), ["Mr. Mime"]);
+        // "or" inside a word must not split it
+        assert.deepEqual(splitPokemonNames("Porygon"), ["Porygon"]);
+    });
+
+    test("returns empty for an empty name", () => {
+        assert.deepEqual(splitPokemonNames(""), []);
+    });
+});
+
 describe("parseDateString", () => {
     test("resolves a month/day against the current year", () => {
         assert.equal(parseDateString("August 15", NOW), "2026-08-15");
@@ -249,6 +329,25 @@ describe("parseDateString", () => {
     test("returns null for unparseable input", () => {
         assert.equal(parseDateString("sometime soon", NOW), null);
         assert.equal(parseDateString("Smarch 4", NOW), null);
+    });
+
+    // Regression: the written year was ignored entirely, so "July 4, 2026" read
+    // in August 2026 silently became 2027 instead of being reported as past.
+    test("an explicit year always wins, even when that date has passed", () => {
+        assert.equal(parseDateString("July 4, 2026", NOW), "2026-07-04");
+        assert.equal(parseDateString("August 12, 2026", NOW), "2026-08-12");
+        assert.equal(parseDateString("January 10, 2027", NOW), "2027-01-10");
+    });
+
+    test("a date range collapses to its first day", () => {
+        assert.equal(parseDateString("July 4-6, 2026", NOW), "2026-07-04");
+    });
+
+    // The year is detected by requiring four digits, so a day number can never
+    // be mistaken for one.
+    test("a bare day number is not read as a year", () => {
+        assert.equal(parseDateString("July 4", NOW), "2027-07-04");      // implied, rolled forward
+        assert.equal(parseDateString("September 5", NOW), "2026-09-05"); // implied, current year
     });
 });
 

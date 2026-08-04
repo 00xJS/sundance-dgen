@@ -12,6 +12,7 @@ import {
 const STORAGE_KEY = 'sundance-dgen:v1';
 const MAX_DESCRIPTIONS = 20;
 const MAX_SUGGESTIONS = 5;
+const MAX_SPRITES = 4;          // sprites stay legible in one square tile up to four
 
 document.addEventListener('DOMContentLoaded', () => {
     const eventForm = document.getElementById('event-form');
@@ -330,9 +331,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------------------------------------------------------- rendering ----
 
-    function descriptionCard({ imageUrl, name, text }) {
-        const image = imageUrl
-            ? `<img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(name)}" class="pokemon-image">`
+    /**
+     * `imageUrls` may hold several sprites — a multi-Pokémon event stacks them
+     * into one square tile (three arrange as a pyramid) so the card keeps its
+     * shape however many are featured.
+     */
+    function descriptionCard({ imageUrls = [], imageUrl, name, text }) {
+        const urls = (imageUrl ? [imageUrl] : imageUrls).slice(0, MAX_SPRITES);
+        const image = urls.length
+            ? `<div class="sprites sprites--${urls.length}">` +
+              urls.map(url => `<img src="${escapeHTML(url)}" alt="${escapeHTML(name)}" loading="lazy">`).join('') +
+              `</div>`
             : '<p class="no-image">No image</p>';
 
         return `<div class="description">
@@ -444,25 +453,37 @@ document.addEventListener('DOMContentLoaded', () => {
         if (skipped.length) showMessages(bulkMessages, skipped.join(''));
         if (!usable.length) return;
 
-        const [images, cps, shinyFlags] = await Promise.all([
-            Promise.all(usable.map(row => row.pokemon ? fetchPokemonImage(row.pokemon) : null)),
-            Promise.all(usable.map(row => row.needsCP ? getCatchCP(row.pokemon) : null)),
-            Promise.all(usable.map(row => row.needsShinyCheck ? isShinyReleased(row.pokemon) : null))
+        // An event can feature several Pokémon, so CP and artwork resolve per
+        // name. Anything that doesn't resolve is simply dropped.
+        const [imageSets, cpSets, shinyFlags] = await Promise.all([
+            Promise.all(usable.map(row =>
+                Promise.all(row.pokemonNames.slice(0, MAX_SPRITES).map(fetchPokemonImage))
+                    .then(urls => urls.filter(Boolean)))),
+            Promise.all(usable.map(row => row.needsCP
+                ? Promise.all(row.pokemonNames.map(name =>
+                    getCatchCP(name).then(cp => cp && { name, ...cp })))
+                    .then(list => list.filter(Boolean))
+                : [])),
+            Promise.all(usable.map(row => row.needsShinyCheck ? isShinyReleased(row.pokemonNames[0]) : null))
         ]);
 
         renderOutput(usable.map((row, i) => {
-            const cp = cps[i];
+            const cpList = cpSets[i];
+            const single = cpList.length === 1 ? cpList[0] : null;
             return descriptionCard({
-                imageUrl: images[i],
+                imageUrls: imageSets[i],
                 name: row.displayName,
                 text: renderDescription({
                     eventType: row.eventType,
-                    pokemon: row.displayName,
+                    // row.pokemon, not displayName — displayName falls back to the
+                    // raw event name, which would render "Raid Hour Raid Hour"
+                    pokemon: row.pokemon,
                     location: custom ?? undefined,
                     formattedDate: row.formattedDate,
                     bonuses: row.bonuses,
-                    hundo: cp?.hundo ?? '',
-                    whundo: cp?.whundo ?? '',
+                    hundo: single?.hundo ?? '',
+                    whundo: single?.whundo ?? '',
+                    cpList,
                     attack: row.attack,
                     // The released-shiny list beats keyword-spotting; fall back if it failed.
                     shinyAvailable: shinyFlags[i] !== null ? shinyFlags[i] : row.shinyFromText
