@@ -353,7 +353,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const renderOutput = parts => {
-        output.innerHTML = `<h2>Generated Descriptions</h2>${parts.join('')}`;
+        // Copy All only earns its place once there is more than one description.
+        const actions = parts.length > 1
+            ? `<div class="output-actions">
+                   <button type="button" class="btn btn--ghost btn--sm" data-copy-all>Copy all ${parts.length}</button>
+                   <span class="copy-feedback" role="status" aria-live="polite"></span>
+               </div>`
+            : '';
+        output.innerHTML =
+            `<div class="output-head"><h2>Generated Descriptions</h2>${actions}</div>${parts.join('')}`;
     };
 
     // -------------------------------------------------- manual generation ----
@@ -553,19 +561,11 @@ document.addEventListener('DOMContentLoaded', () => {
     bulkCustomLocation.addEventListener('input', debounce(() => persist({ bulkCustomLocation: bulkCustomLocation.value }), 400));
     customLocationInput.addEventListener('input', debounce(() => persist({ customLocation: customLocationInput.value }), 400));
 
-    // One delegated handler for every Copy button, present and future.
-    output.addEventListener('click', async event => {
-        const button = event.target.closest('[data-copy]');
-        if (!button) return;
-
-        const card = button.closest('.description');
-        const textarea = card?.querySelector('textarea');
-        const feedback = card?.querySelector('.copy-feedback');
-        if (!textarea || !feedback) return;
-
+    async function copyToClipboard(text, feedback, successLabel = 'Copied') {
+        if (!feedback) return;
         try {
-            await navigator.clipboard.writeText(textarea.value);
-            feedback.textContent = 'Copied';
+            await navigator.clipboard.writeText(text);
+            feedback.textContent = successLabel;
             feedback.style.color = 'var(--live)';
         } catch (error) {
             feedback.textContent = 'Copy failed';
@@ -574,6 +574,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         feedback.style.display = 'inline';
         setTimeout(() => { feedback.style.display = 'none'; }, 5000);
+    }
+
+    // One delegated handler for every Copy button, present and future.
+    output.addEventListener('click', event => {
+        const copyAll = event.target.closest('[data-copy-all]');
+        if (copyAll) {
+            const texts = [...output.querySelectorAll('.description textarea')].map(area => area.value);
+            if (!texts.length) return;
+            return copyToClipboard(
+                texts.join('\n\n'),
+                copyAll.parentElement.querySelector('.copy-feedback'),
+                `Copied ${texts.length}`
+            );
+        }
+
+        const button = event.target.closest('[data-copy]');
+        if (!button) return;
+        const card = button.closest('.description');
+        return copyToClipboard(
+            card?.querySelector('textarea')?.value ?? '',
+            card?.querySelector('.copy-feedback')
+        );
     });
 
     restore();
