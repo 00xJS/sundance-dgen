@@ -91,7 +91,7 @@ If you're lucky, you might encounter a shiny one ✨
 ✅ "Check in" on Campfire when you arrive
 ```
 
-Each result comes with the Pokémon's artwork and a **Copy** button.
+Each result comes with the Pokémon's artwork and a **Copy** button. When there's more than one, a **Copy all** button in the results header puts the whole batch on the clipboard, blank-line separated.
 
 ---
 
