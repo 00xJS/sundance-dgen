@@ -603,15 +603,43 @@
             height: 150px;
         }
 
-        .pokemon-image {
+        /* One square tile however many Pokémon are featured. The light backing
+           keeps dark line art legible on the navy card. */
+        .sprites {
             flex: 0 0 auto;
-            width: 96px;
-            height: 96px;
-            object-fit: contain;
+            display: grid;
+            place-items: center;
+            gap: 2px;
+            width: 108px;
+            height: 108px;
             padding: 6px;
             background: var(--sprite-bg);
             border: 1px solid var(--border);
             border-radius: var(--radius-control);
+        }
+
+        .sprites img {
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            object-fit: contain;
+        }
+
+        .sprites--2 {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        /* Three stack as a pyramid: one centred on top, two beneath. */
+        .sprites--3,
+        .sprites--4 {
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+        }
+
+        .sprites--3 img:first-child {
+            grid-column: 1 / -1;
+            width: 50%;
         }
 
         .copy-feedback {
@@ -663,11 +691,19 @@
             color: var(--down);
         }
 
+        /* Same footprint as a sprite tile, so cards line up whether or not
+           artwork resolved. */
         .no-image {
             flex: 0 0 auto;
-            width: 96px;
+            display: grid;
+            place-items: center;
+            width: 108px;
+            height: 108px;
             margin: 0;
             padding: 6px;
+            background: var(--bg-raised);
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-control);
             font-family: var(--font-mono);
             font-size: 10px;
             letter-spacing: 0.08em;
