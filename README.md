@@ -32,14 +32,14 @@ From each row the tool works out:
 | Date | Month + day. **A written year is used as-is.** Without one, the current year is assumed, rolling forward if that month has already been and gone |
 | Bonuses | Keyword-matched from the details column, capped at the event type's limit |
 | Shiny | Looked up against the released-shiny list, falling back to whether "shiny" appears in the details |
-| Catch CP | Curated table first, then computed from base stats |
+| Catch CP | Computed from the Pokémon's current base stats |
 | Featured attack | Pulled from "gets"/"learns" phrasing in the details |
 
 Rows it can't read are reported inline as a **Skipped** notice and don't stop the rest of the batch.
 
 **Put the Pokémon in the Event Name**, not the Details column — `Groudon Raid Hour`, not `Raid Hour` with "Groudon" in Details.
 
-**Several featured Pokémon** can be listed with commas, `&`, `and` or `or`. Each gets its own labelled CP line, and their artwork stacks into one square tile (three arrange as a pyramid):
+**Several featured Pokémon** can be listed with commas, `&`, `and` or `or`. Each gets its own labelled CP line, and their artwork stacks into one square tile — two side by side, three as a pyramid, four in a grid:
 
 ```
 | Articuno, Zapdos & Moltres Raid Hour | five-star raids | September 2 |
@@ -126,6 +126,8 @@ npm test
 | `data/` | Vendored API snapshots, refreshed weekly by CI |
 | `scripts/refresh-data.js` | Fetches and trims those snapshots |
 | `test/` | Test suite |
+| `.github/workflows/` | Tests on push and PR; weekly data refresh |
+| `package.json` | Scripts only — there are no dependencies |
 
 ## Adapting it for another community
 
